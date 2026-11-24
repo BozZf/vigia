@@ -35,7 +35,7 @@ function sources() {
     v.load();
   });
   document.querySelector('#tipo').textContent = personal() ? 'Gravações do aparelho' : 'Prévia local';
-  document.querySelector('#nota').textContent = personal() ? 'Os arquivos selecionados são reproduzidos no seu celular.' : 'Os dois vídeos de teste demonstram a reprodução no celular. A câmera Casa ainda não está conectada.';
+  document.querySelector('#nota').textContent = personal() ? 'Os arquivos selecionados são reproduzidos no seu celular.' : 'Os dois vídeos de teste demonstram a reprodução no celular. Para ver a câmera, abra o teste de Wi-Fi.';
   caption();
 }
 videos.forEach((v, i) => {
