@@ -55,7 +55,10 @@ final class CameraOnvif {
     }
     static final class Profile {
         final String token, source, label;
-        Profile(String token,String source,String label){this.token=token;this.source=source;this.label=label;}
+        final long pixels;
+        Profile(String token,String source,String label,long pixels){
+            this.token=token;this.source=source;this.label=label;this.pixels=pixels;
+        }
     }
     List<Profile> profiles() throws Exception {
         try {
@@ -83,10 +86,23 @@ final class CameraOnvif {
             Element enc=first(p,"VideoEncoderConfiguration");
             String size=text(enc,"Width"), height=text(enc,"Height");
             String label=(name.isEmpty()?"Perfil "+(i+1):name)+(size.isEmpty()?"":" · "+size+"×"+height);
-            found.add(new Profile(token,text(first(p,"VideoSourceConfiguration"),"SourceToken"),label));
+            long pixels=Long.MAX_VALUE;
+            try {
+                int w=Integer.parseInt(size), h=Integer.parseInt(height);
+                if(w>0 && h>0)pixels=(long)w*h;
+            }catch(NumberFormatException ignored){ /* Some cameras omit the dimensions. */ }
+            found.add(new Profile(token,text(first(p,"VideoSourceConfiguration"),"SourceToken"),label,pixels));
         }
         if(found.isEmpty())throw new IOException("O serviço de vídeo não retornou perfis.");
         return found;
+    }
+    static Profile lightest(List<Profile> profiles,String source) {
+        Profile best=null;
+        for(Profile p:profiles){
+            if(!p.source.equals(source))continue;
+            if(best==null || p.pixels<best.pixels)best=p;
+        }
+        return best;
     }
     URI stream(Profile p) throws Exception {
         String body="<m:StreamSetup><t:Stream>RTP-Unicast</t:Stream><t:Transport><t:Protocol>RTSP</t:Protocol></t:Transport></m:StreamSetup><m:ProfileToken>"+escape(p.token)+"</m:ProfileToken>";
@@ -151,7 +167,8 @@ final class CameraOnvif {
                 try(OutputStream out=c.getOutputStream()){out.write(msg.getBytes(StandardCharsets.UTF_8));}
                 int code=c.getResponseCode();
                 if(code==401 && attempt==0 && auth && !user.isEmpty()){
-                    authorization=digestHeader(c.getHeaderField("WWW-Authenticate"),uri,user,pass);
+                    String target=uri.getRawPath()+(uri.getRawQuery()==null?"":"?"+uri.getRawQuery());
+                    authorization=digestHeader(c.getHeaderField("WWW-Authenticate"),"POST",target,user,pass);
                     if(authorization!=null)continue;
                 }
                 if(code==401 || code==403)throw new IOException(method+": acesso recusado. Confira o usuário e a senha NVR/RTSP.");
@@ -185,7 +202,7 @@ final class CameraOnvif {
         StringBuilder str=new StringBuilder();for(byte b:raw)str.append(String.format(Locale.ROOT,"%02x",b&255));return str.toString();
     }
     private static String quote(String s){return "\""+s.replace("\\","\\\\").replace("\"","\\\"")+"\"";}
-    static String digestHeader(String challenge,URI uri,String user,String pass) throws Exception {
+    static String digestHeader(String challenge,String method,String target,String user,String pass) throws Exception {
         if(challenge==null || !challenge.regionMatches(true,0,"Digest ",0,7))return null;
         Map<String,String> m=new HashMap<>();
         Matcher it=Pattern.compile("(\\w+)\\s*=\\s*(?:\"([^\"]*)\"|([^,\\s]+))").matcher(challenge.substring(7));
@@ -193,8 +210,7 @@ final class CameraOnvif {
         String realm=m.get("realm"),nonce=m.get("nonce"),algorithm=m.getOrDefault("algorithm","MD5");
         if(realm==null || nonce==null || !(algorithm.equalsIgnoreCase("MD5") || algorithm.equalsIgnoreCase("SHA-256")))return null;
         if(user.contains("\r")||user.contains("\n"))throw new IOException("Usuário inválido.");
-        String target=uri.getRawPath()+(uri.getRawQuery()==null?"":"?"+uri.getRawQuery());
-        String a1=hash(algorithm,user+":"+realm+":"+pass), a2=hash(algorithm,"POST:"+target);
+        String a1=hash(algorithm,user+":"+realm+":"+pass), a2=hash(algorithm,method+":"+target);
         String mid="",extra="";
         if(m.containsKey("qop")){
             if(!Arrays.asList(m.get("qop").toLowerCase(Locale.ROOT).split("\\s*,\\s*")).contains("auth"))return null;

@@ -1,6 +1,10 @@
 package br.vigia.mobile;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.net.Uri;
+import android.view.View;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -19,6 +23,7 @@ public final class CameraLocal extends Activity {
     private static final int INK=0xffeff5f3, SUB=0xffbac9c5, BG=0xff171b23;
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private final Handler main=new Handler();
+    private final ExecutorService diagnostics=Executors.newFixedThreadPool(2);
     private CameraOnvif camera;
     private EditText address, user, password;
     private TextView status;
@@ -76,18 +81,22 @@ public final class CameraLocal extends Activity {
         return "Falha de comunicação com o serviço de vídeo local.";
     }
     private void showProfiles(List<CameraOnvif.Profile> list){
-        int second=-1;
-        for(int i=1;i<list.size();i++)if(!list.get(0).source.isEmpty()&&!list.get(i).source.isEmpty()&&
-                !list.get(0).source.equals(list.get(i).source)){second=i;break;}
-        status.setText(list.size()+" perfil(is) recebido(s). "+(second>=0?"Duas fontes distintas anunciadas.":
-            "A câmera não identificou duas fontes distintas. Você pode experimentar os perfis abaixo."));
+        CameraOnvif.Profile first=CameraOnvif.lightest(list,list.get(0).source), second=null;
+        for(CameraOnvif.Profile p:list){
+            if(!first.source.isEmpty() && !p.source.isEmpty() && !p.source.equals(first.source)){
+                second=CameraOnvif.lightest(list,p.source);break;
+            }
+        }
+        status.setText(list.size()+" perfil(is) recebido(s). Abrindo "+first.label+". "+
+            (second!=null?"Duas fontes distintas anunciadas.":
+            "Os perfis podem ser qualidades da mesma imagem. Confira se o visor mostra as duas cenas."));
         label(options,"Perfis da câmera",19);
         for(CameraOnvif.Profile p:list){
             label(options,p.label,15);
             LinearLayout row=new LinearLayout(this);options.addView(row);
             for(int i=0;i<2;i++){final int index=i;button(row,"Abrir no visor "+(i+1)).setOnClickListener(v->select(index,p));}
         }
-        select(0,list.get(0));if(second>=0)select(1,list.get(second));
+        select(0,first);if(second!=null)select(1,second);
     }
     private void select(int index,CameraOnvif.Profile profile){
         Pane pane=panes[index];pane.clear();
@@ -108,7 +117,7 @@ public final class CameraLocal extends Activity {
     }
     @Override protected void onStop(){stopSession();super.onStop();}
     @Override protected void onDestroy(){
-        worker.shutdownNow();
+        worker.shutdownNow();diagnostics.shutdownNow();
         for(Pane p:panes)if(p!=null){p.release();p.thread.quitSafely();}
         super.onDestroy();
     }
@@ -116,6 +125,7 @@ public final class CameraLocal extends Activity {
     private final class Pane implements SurfaceHolder.Callback {
         final SurfaceView view;
         final TextView note;
+        final Button vlc;
         final HandlerThread thread;
         final Handler playback;
         // Only the playback thread creates, uses and releases this player.
@@ -131,8 +141,19 @@ public final class CameraLocal extends Activity {
             playback=new Handler(thread.getLooper());
             label(root,"Visor "+number,19);note=label(root,"Sem vídeo",14);
             view=new SurfaceView(CameraLocal.this);root.addView(view,-1,dp(146));view.getHolder().addCallback(this);
+            vlc=button(root,"Abrir este perfil no VLC");
+            vlc.setVisibility(View.GONE);
+            vlc.setOnClickListener(v->{
+                URI selected=stream;
+                if(selected==null)return;
+                Intent intent=new Intent(Intent.ACTION_VIEW);
+                intent.setPackage("org.videolan.vlc");
+                intent.setDataAndType(Uri.parse(DiagnosticoRtsp.enderecoSemUsuario(selected).toASCIIString()),"video/*");
+                try{startActivity(intent);}
+                catch(ActivityNotFoundException e){android.widget.Toast.makeText(CameraLocal.this,"Instale o VLC para Android para usar esse botão.",android.widget.Toast.LENGTH_LONG).show();}
+            });
         }
-        void clear(){++generation;stream=null;release();note.setText("Sem vídeo");}
+        void clear(){++generation;stream=null;release();vlc.setVisibility(View.GONE);note.setText("Sem vídeo");}
         void release(){
             ++attempt;opening=false;
             if(timer!=null){main.removeCallbacks(timer);timer=null;}
@@ -142,13 +163,25 @@ public final class CameraLocal extends Activity {
             });
         }
         void failed(int id,String detail){
-            main.post(()->{if(id==attempt){release();note.setText(title+" · "+detail);}});
+            main.post(()->{
+                if(id!=attempt || stream==null)return;
+                release();
+                int check=attempt;URI selected=stream;
+                vlc.setVisibility(View.VISIBLE);
+                String prefix=title+" · "+detail;
+                note.setText(prefix+" Conferindo RTSP…");
+                diagnostics.execute(()->{
+                    if(check!=attempt)return;
+                    String result=DiagnosticoRtsp.inspect(selected);
+                    main.post(()->{if(check==attempt)note.setText(prefix+" "+result);});
+                });
+            });
         }
         void start(){
             if(!ready || stream==null || opening)return;
-            opening=true;final int id=++attempt;String url=stream.toASCIIString();
+            opening=true;vlc.setVisibility(View.GONE);final int id=++attempt;String url=stream.toASCIIString();
             note.setText(title+" · abrindo RTSP…");
-            timer=()->{if(id==attempt){release();note.setText(title+" · RTSP sem primeiro quadro em 25 s.");}};
+            timer=()->failed(id,"sem primeiro quadro em 25 s.");
             main.postDelayed(timer,25000);
             playback.post(()->{
                 if(id!=attempt)return;
