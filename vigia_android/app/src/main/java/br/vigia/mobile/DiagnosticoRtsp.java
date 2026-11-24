@@ -19,6 +19,7 @@ final class DiagnosticoRtsp {
         boolean close;
         String challenge="";
         String body="";
+        String base="",session="",transport="";
     }
     private static String line(InputStream in,int[] remaining) throws IOException {
         ByteArrayOutputStream buffer=new ByteArrayOutputStream();
@@ -40,6 +41,9 @@ final class DiagnosticoRtsp {
         while(!(header=line(in,budget)).isEmpty()){
             int sep=header.indexOf(':');if(sep<=0)continue;
             String key=header.substring(0,sep).trim(), val=header.substring(sep+1).trim();
+            if(key.equalsIgnoreCase("Content-Base"))r.base=val;
+            if(key.equalsIgnoreCase("Session"))r.session=val;
+            if(key.equalsIgnoreCase("Transport"))r.transport=val;
             if(key.equalsIgnoreCase("Connection") && "close".equalsIgnoreCase(val))r.close=true;
             if(key.equalsIgnoreCase("Content-Length"))r.length=Integer.parseInt(val);
             if(key.equalsIgnoreCase("WWW-Authenticate") && (r.challenge.isEmpty() || val.regionMatches(true,0,"Digest ",0,7)))r.challenge=val;
@@ -106,7 +110,7 @@ final class DiagnosticoRtsp {
                 socket.connect(new InetSocketAddress(target.getHost(),target.getPort()<0?554:target.getPort()),2500);
                 socket.setSoTimeout(3000);
             }
-            String req="DESCRIBE "+target.toASCIIString()+" RTSP/1.0\r\nCSeq: "+seq+"\r\nUser-Agent: Vigia/0.2.2\r\nAccept: application/sdp\r\n"+
+            String req="DESCRIBE "+target.toASCIIString()+" RTSP/1.0\r\nCSeq: "+seq+"\r\nUser-Agent: Vigia/0.2.4\r\nAccept: application/sdp\r\n"+
                 (auth==null?"":"Authorization: "+auth+"\r\n")+"\r\n";
             socket.getOutputStream().write(req.getBytes(StandardCharsets.UTF_8));
             Reply r=read(socket.getInputStream());

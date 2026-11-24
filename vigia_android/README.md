@@ -1,6 +1,6 @@
 # Vigia para Android
 
-A versão 0.2.2 inclui o teste local ONVIF/RTSP. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
+A versão 0.2.4 inclui o teste local ONVIF/RTSP. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
 
 ## Executar
 
@@ -10,13 +10,13 @@ Abra esta pasta no Android Studio com o SDK Android 35, JDK 17 e Gradle 8.9. Sin
 
 Conecte o celular à rede da câmera e informe seu IPv4 local. O app aceita o endereço do serviço ONVIF que aparece no ONVIF Device Manager, inclusive a porta e o caminho. Com apenas o IP, usa a porta 5000. Preencha o usuário e a senha locais NVR/RTSP. A tela também aceita campos vazios para dispositivos que oferecem acesso local sem usuário. A senha permanece na memória enquanto a tela está aberta.
 
-Ao conectar, o app consulta o relógio, o serviço de mídia ONVIF Media1 e os perfis de vídeo. A reprodução começa pelo perfil de menor resolução conhecida da primeira fonte. Quando há outra fonte identificada, abre seu perfil mais leve no segundo visor. Uma câmera também pode enviar as duas imagens juntas no mesmo fluxo. Os botões de perfil permitem escolher o que testar em cada visor. O estado “ao vivo” exige a indicação de primeiro quadro renderizado pelo player do Android. Se o player falhar, o Vigia consulta a descrição RTSP do perfil e exibe a resposta. Um código 200 confirma a descrição do fluxo. A exibição da imagem depende também do transporte de mídia e do decodificador. O botão **Abrir este perfil no VLC** entrega o endereço ao VLC instalado. Caso o VLC peça autenticação, informe o usuário e a senha locais. Ao sair da tela, o app encerra os players e as consultas. Este teste requer que o equipamento disponibilize vídeo na rede local.
+Ao conectar, o app consulta o relógio, o serviço de mídia ONVIF Media1 e os perfis de vídeo. O app abre o MainStream quando ele está presente na primeira fonte e usa seu endereço ONVIF para negociar uma única faixa de vídeo por RTP/UDP. Recebe H.264 ou H.265 e envia os quadros ao MediaCodec do Android. A imagem composta das duas lentes ocupa um único visor. O PC confirmou as duas cenas no MainStream por UDP. A reprodução contínua no Galaxy A40 depende do teste no aparelho. Se faltar MainStream, o app escolhe o perfil mais leve da primeira fonte. Quando há outra fonte identificada, abre seu perfil mais leve no segundo visor. Os botões de perfil permitem trocar a seleção. Se a reprodução UDP falhar, **Tentar com o player do Android** usa o reprodutor padrão para o mesmo endereço. O botão **Abrir este perfil no VLC** entrega o endereço ao VLC instalado. Caso o VLC peça autenticação, informe o usuário e a senha locais. Ao sair da tela, o app encerra os players e as consultas. Este teste requer que o equipamento disponibilize vídeo na rede local.
 
 ### Se a câmera responder RTSP 400
 
 O Vigia mostra em qual porta e etapa a câmera recusou a consulta de descrição do vídeo. **Testar RTSP direto** abre um caminho alternativo usual da família Yoosee na mesma câmera, com as credenciais locais já informadas. Esse botão aparece para MainStream ou SubStream quando o destino alternativo difere do endereço anunciado, ou quando a câmera não fornece um endereço. A compatibilidade depende do firmware.
 
-**Ver fotos ONVIF** solicita ao serviço de mídia o JPEG do perfil escolhido. Se a câmera oferecer essa função, a tela mostra a hora de recebimento e pede a próxima foto três segundos depois. **Parar fotos** pausa as atualizações. A troca de perfil e a saída da tela também encerram esse modo. As fotos ficam na memória durante a visualização. Para conferir as lentes em uma imagem maior, selecione o perfil MainStream.
+**Ver fotos ONVIF** solicita ao serviço de mídia o JPEG do perfil escolhido. Se a câmera oferecer essa função, a tela mostra a hora de recebimento e pede a próxima foto três segundos depois. **Parar fotos** pausa as atualizações. A troca de perfil e a saída da tela também encerram esse modo. Se a conexão cair antes de completar uma resposta, o app solicita um novo endereço e tenta mais uma vez. O visor identifica se a falha ocorreu ao pedir o endereço ou ao baixar a foto. As fotos ficam na memória durante a visualização. Para conferir as lentes em uma imagem maior, selecione o perfil MainStream.
 
 ## Verificar os controles
 

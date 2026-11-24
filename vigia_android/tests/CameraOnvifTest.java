@@ -8,6 +8,9 @@ public class CameraOnvifTest {
     private static final String IP="192.168.0.8";
     private static final List<String> calls=new ArrayList<>();
     private static boolean deny,badPhoto;
+    private static String dropAction="";
+    private static int drops, shortBodies;
+    private static boolean relativePhoto;
     private static void check(boolean ok){if(!ok)throw new AssertionError();}
     private static final class Camera extends HttpURLConnection {
         final ByteArrayOutputStream out=new ByteArrayOutputStream();
@@ -15,8 +18,16 @@ public class CameraOnvifTest {
         public void connect(){} public void disconnect(){} public boolean usingProxy(){return false;}
         public OutputStream getOutputStream(){return out;}
         String action(){if("GET".equals(getRequestMethod()))return "photo";String s=getRequestProperty("Content-Type");return s.substring(s.lastIndexOf('/')+1,s.length()-1);}
-        public int getResponseCode(){
+        public int getResponseCode() throws IOException {
             calls.add(action());
+            if(action().equals("GetSnapshotUri") || action().equals("photo")){
+                check("close".equals(getRequestProperty("Connection")));
+                check("identity".equals(getRequestProperty("Accept-Encoding")));
+            }
+            if(action().equals(dropAction) && drops>0){
+                drops--;
+                throw new IOException("unexpected end of stream on com.android.okhttp.Address@abcd");
+            }
             if(action().equals("photo")){
                 if(getInstanceFollowRedirects() || getUseCaches())throw new AssertionError();
                 return getRequestProperty("Authorization")==null?401:200;
@@ -24,15 +35,20 @@ public class CameraOnvifTest {
             return action().equals("GetProfiles") && (deny || getRequestProperty("Authorization")==null)?401:200;
         }
         public String getHeaderField(String n){return "Digest realm=\"camera\", nonce=\"abc\", qop=\"auth\", algorithm=MD5";}
+        public int getContentLength(){
+            if(action().equals("photo") && shortBodies>0){shortBodies--;return 20;}
+            return -1;
+        }
         public InputStream getInputStream(){
             String a=action(), fields="";
             switch(a){
             case "photo":
+                check(url.getPort()==(relativePhoto?5000:5070));
                 check(url.getPath().equals("/snapshot") && getRequestProperty("Authorization").contains("uri=\"/snapshot?view=2\""));
                 return new ByteArrayInputStream(badPhoto?new byte[]{1,2,3}:new byte[]{-1,-40,-1,1});
             case "GetSnapshotUri":
                 check(out.toString().contains("lower"));
-                fields="<Uri>http://wrong.invalid:5070/snapshot?view=2</Uri>";break;
+                fields=relativePhoto?"<Uri>snapshot?view=2</Uri>":"<Uri>http://wrong.invalid:5070/snapshot?view=2</Uri>";break;
             case "GetSystemDateAndTime": fields="<UTCDateTime><Year>2026</Year><Month>11</Month><Day>23</Day><Hour>12</Hour><Minute>30</Minute><Second>15</Second></UTCDateTime>";break;
             case "GetCapabilities":fields="<Media><XAddr>http://wrong.invalid:5000/media</XAddr></Media>";break;
             case "GetProfiles":
@@ -64,8 +80,21 @@ public class CameraOnvifTest {
         URI stream=client.stream(p.get(2));check(stream.getHost().equals(IP) && stream.getRawPath().equals("/path%2Fone") && stream.getRawQuery().equals("q=a%20b") && stream.getUserInfo().equals("local:s&cret"));
         check(calls.equals(Arrays.asList("GetSystemDateAndTime","GetCapabilities","GetProfiles","GetProfiles","GetStreamUri")));
         check(client.snapshot(p.get(2))[0]==-1);
-        badPhoto=true;
+        relativePhoto=true;
+        for(String action:Arrays.asList("GetSnapshotUri","photo")){
+            calls.clear();dropAction=action;drops=1;
+            check(client.snapshot(p.get(2))[0]==-1 && Collections.frequency(calls,"GetSnapshotUri")==2);
+            drops=2;
+            try{client.snapshot(p.get(2));throw new AssertionError();}catch(IOException expected){
+                String stage=action.equals("photo")?"Download da foto":"Pedido do endereço";
+                check(expected.getMessage().startsWith(stage) && !expected.getMessage().contains("okhttp"));
+            }
+        }
+        shortBodies=1;calls.clear();
+        check(client.snapshot(p.get(2)).length==4 && Collections.frequency(calls,"GetSnapshotUri")==2);
+        calls.clear();badPhoto=true;
         try{client.snapshot(p.get(2));throw new AssertionError();}catch(IOException expected){check(expected.getMessage().contains("JPEG"));}
+        check(Collections.frequency(calls,"GetSnapshotUri")==1);
         CameraOnvif.Profile sub=new CameraOnvif.Profile("s","","SubStream","sub",100);
         URI direct=client.directStream(sub,stream);
         check(direct.getHost().equals(IP) && direct.getPort()==554 && direct.getPath().equals("/onvif2") && direct.getUserInfo().equals("local:s&cret"));

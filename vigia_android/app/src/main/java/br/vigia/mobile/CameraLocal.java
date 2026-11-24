@@ -42,7 +42,7 @@ public final class CameraLocal extends Activity {
         label(root,"Câmera no Wi-Fi",24);
         label(root,"Use o mesmo Wi-Fi da câmera. Informe o endereço local e a senha de conexão NVR/RTSP.",15);
         address=field("IP ou endereço ONVIF","Ex.: 192.168.1.50:5000",17);
-        user=field("Usuário local","Usuário da câmera",1);user.setText("administrator");
+        user=field("Usuário local","Usuário da câmera",1);user.setText("admin");
         password=field("Senha NVR/RTSP","Senha local da câmera",129);
         connect=button(root,"Conectar à câmera");connect.setOnClickListener(v->{if(camera==null)begin();else stopSession();});
         status=label(root,"Aguardando conexão.",15);
@@ -85,11 +85,14 @@ public final class CameraLocal extends Activity {
     private void showProfiles(List<CameraOnvif.Profile> list){
         CameraOnvif.Profile first=CameraOnvif.lightest(list,list.get(0).source), second=null;
         for(CameraOnvif.Profile p:list){
+            if(p.name.equalsIgnoreCase("MainStream") && p.source.equals(first.source)){first=p;break;}
+        }
+        for(CameraOnvif.Profile p:list){
             if(!first.source.isEmpty() && !p.source.isEmpty() && !p.source.equals(first.source)){
                 second=CameraOnvif.lightest(list,p.source);break;
             }
         }
-        status.setText(list.size()+" perfil(is) recebido(s). Abrindo "+first.label+". "+
+        status.setText(list.size()+" perfil(is) recebido(s). "+
             (second!=null?"Duas fontes distintas anunciadas.":
             "Os perfis podem ser qualidades da mesma imagem. Confira se o visor mostra as duas cenas."));
         label(options,"Perfis da câmera",19);
@@ -102,7 +105,7 @@ public final class CameraLocal extends Activity {
     }
     private void select(int index,CameraOnvif.Profile profile){
         Pane pane=panes[index];pane.clear();
-        pane.profile=profile;pane.title=profile.label;
+        pane.profile=profile;pane.title=profile.label;pane.useUdp=profile.name.equalsIgnoreCase("MainStream");
         pane.photoButton.setVisibility(View.VISIBLE);
         int version=pane.generation,id=session;CameraOnvif client=camera;
         pane.note.setText(profile.label+" · solicitando vídeo…");
@@ -136,7 +139,7 @@ public final class CameraLocal extends Activity {
     private final class Pane implements SurfaceHolder.Callback {
         final SurfaceView view;
         final TextView note;
-        final Button vlc, directButton, photoButton;
+        final Button vlc, directButton, photoButton, systemPlayer;
         final ImageView photo;
         CameraOnvif.Profile profile;
         URI directUri;
@@ -148,7 +151,7 @@ public final class CameraLocal extends Activity {
         MediaPlayer player;
         URI stream;
         String title="";
-        boolean ready, opening;
+        boolean ready, opening, useUdp;
         volatile int generation;
         volatile int attempt;
         Runnable timer;
@@ -165,9 +168,14 @@ public final class CameraLocal extends Activity {
             directButton.setOnClickListener(v->{
                 if(directUri==null)return;
                 stopPhotos(false);photo.setVisibility(View.GONE);photo.setImageBitmap(null);
-                release();stream=directUri;directUri=null;view.setVisibility(View.VISIBLE);
+                release();useUdp=false;stream=directUri;directUri=null;view.setVisibility(View.VISIBLE);
                 title=profile.label+" (direto)";
                 directButton.setVisibility(View.GONE);start();
+            });
+            systemPlayer=button(root,"Tentar com o player do Android");systemPlayer.setVisibility(View.GONE);
+            systemPlayer.setOnClickListener(v->{
+                if(stream==null)return;
+                release();useUdp=false;systemPlayer.setVisibility(View.GONE);start();
             });
             vlc=button(root,"Abrir este perfil no VLC");
             vlc.setVisibility(View.GONE);
@@ -182,7 +190,7 @@ public final class CameraLocal extends Activity {
             });
         }
         void clear(){
-            ++generation;stream=null;profile=null;directUri=null;
+            systemPlayer.setVisibility(View.GONE);++generation;stream=null;profile=null;directUri=null;
             stopPhotos(false);release();
             photo.setImageBitmap(null);photo.setVisibility(View.GONE);view.setVisibility(View.VISIBLE);
             directButton.setVisibility(View.GONE);vlc.setVisibility(View.GONE);photoButton.setVisibility(View.GONE);
@@ -197,7 +205,7 @@ public final class CameraLocal extends Activity {
         }
         void startPhotos(){
             if(camera==null || profile==null)return;
-            ++generation;photos=true;stream=null;release();
+            systemPlayer.setVisibility(View.GONE);++generation;photos=true;stream=null;release();
             view.setVisibility(View.GONE);vlc.setVisibility(View.GONE);directButton.setVisibility(directUri==null?View.GONE:View.VISIBLE);
             photo.setImageBitmap(null);photo.setVisibility(View.VISIBLE);
             title=profile.label;photoButton.setText("Parar fotos");
@@ -257,10 +265,19 @@ public final class CameraLocal extends Activity {
         }
         void start(){
             if(!ready || stream==null || opening)return;
-            opening=true;vlc.setVisibility(View.GONE);final int id=++attempt;String url=stream.toASCIIString();
+            opening=true;systemPlayer.setVisibility(View.GONE);vlc.setVisibility(View.GONE);final int id=++attempt;String url=stream.toASCIIString();
             note.setText(title+" · abrindo RTSP…");
-            timer=()->failed(id,"sem primeiro quadro em 25 s.");
+            timer=()->{
+                if(useUdp)udpFailed(id,"Sem primeiro quadro decodificado em 25 s.");
+                else failed(id,"sem primeiro quadro em 25 s.");
+            };
             main.postDelayed(timer,25000);
+            if(useUdp){
+                URI selected=stream;int width=profile.width,height=profile.height;
+                note.setText(title+" · abrindo vídeo por UDP…");
+                playback.post(()->playUdp(id,selected,width,height));
+                return;
+            }
             playback.post(()->{
                 if(id!=attempt)return;
                 try{
@@ -287,6 +304,37 @@ public final class CameraLocal extends Activity {
                     mp.setDataSource(url);if(id==attempt)mp.prepareAsync();
                 }catch(Exception ex){failed(id,"o Android não conseguiu abrir este fluxo RTSP.");}
             });
+        }
+        void playUdp(int id,URI selected,int width,int height){
+            if(id!=attempt)return;
+            UdpDecoder.View callbacks=new UdpDecoder.View(){
+                public boolean active(){return id==attempt;}
+                public void size(int w,int h){main.post(()->{
+                    if(!active() || w<=0 || h<=0 || view.getWidth()==0)return;
+                    ViewGroup.LayoutParams lp=view.getLayoutParams();
+                    lp.height=Math.max(1,Math.round(view.getWidth()*((float)h/w)));view.setLayoutParams(lp);
+                });}
+                public void firstFrame(){main.post(()->{
+                    if(!active())return;
+                    if(timer!=null)main.removeCallbacks(timer);
+                    note.setText(title+" · ao vivo por UDP");
+                });}
+            };
+            try(UdpDecoder decoder=new UdpDecoder(view.getHolder().getSurface(),width,height,callbacks)){
+                new RtspUdp(selected).play(decoder);
+            }catch(Exception ex){
+                String reason=ex instanceof java.net.SocketTimeoutException?"Tempo esgotado na negociação RTSP.":
+                    ex instanceof IOException && ex.getClass()==IOException.class && ex.getMessage()!=null &&
+                    ex.getMessage().matches("(OPTIONS|DESCRIBE|SETUP|PLAY|A câmera|O Android|Quadro maior|Sem par|Autenticação|Endereço|Conexão).*")?
+                    ex.getMessage():"Falha ao receber ou decodificar o vídeo UDP.";
+                main.post(()->udpFailed(id,reason));
+            }
+        }
+        void udpFailed(int id,String reason){
+            if(id!=attempt)return;
+            release();note.setText(title+" · "+reason);
+            systemPlayer.setVisibility(View.VISIBLE);vlc.setVisibility(View.VISIBLE);
+            if(directUri!=null)directButton.setVisibility(View.VISIBLE);
         }
         @Override public void surfaceCreated(SurfaceHolder h){ready=true;start();}
         @Override public void surfaceChanged(SurfaceHolder h,int format,int w,int height){}

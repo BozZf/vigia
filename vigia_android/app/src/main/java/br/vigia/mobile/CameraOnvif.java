@@ -56,6 +56,7 @@ final class CameraOnvif {
     static final class Profile {
         final String token, source, name, label;
         final long pixels;
+        int width=1280,height=720;
         Profile(String token,String source,String name,String label,long pixels){
             this.token=token;this.source=source;this.name=name;this.label=label;this.pixels=pixels;
         }
@@ -91,7 +92,9 @@ final class CameraOnvif {
                 int w=Integer.parseInt(size), h=Integer.parseInt(height);
                 if(w>0 && h>0)pixels=(long)w*h;
             }catch(NumberFormatException ignored){ /* Some cameras omit the dimensions. */ }
-            found.add(new Profile(token,text(first(p,"VideoSourceConfiguration"),"SourceToken"),name,label,pixels));
+            Profile profile=new Profile(token,text(first(p,"VideoSourceConfiguration"),"SourceToken"),name,label,pixels);
+            if(pixels!=Long.MAX_VALUE){profile.width=Integer.parseInt(size);profile.height=Integer.parseInt(height);}
+            found.add(profile);
         }
         if(found.isEmpty())throw new IOException("O serviço de vídeo não retornou perfis.");
         return found;
@@ -121,8 +124,49 @@ final class CameraOnvif {
 
     byte[] snapshot(Profile p) throws Exception {
         String body="<m:ProfileToken>"+escape(p.token)+"</m:ProfileToken>";
-        Element reply=request(media,MEDIA,"GetSnapshotUri",body,true);
-        URI uri=sameCamera(text(reply,"Uri"),false);
+        for(int attempt=0; ; attempt++){
+            String stage="Pedido do endereço da foto (ONVIF)";
+            try {
+                Element reply=request(media,MEDIA,"GetSnapshotUri",body,true);
+                String location=text(reply,"Uri");
+                if(location.isEmpty())throw new IOException("A câmera respondeu sem endereço de foto.");
+                URI uri;
+                try {
+                    uri=sameCamera(media.resolve(location).toString(),false);
+                } catch(IllegalArgumentException e){
+                    throw new IOException("O endereço anunciado pela câmera é inválido.");
+                }
+                stage="Download da foto (HTTP)";
+                return downloadSnapshot(uri);
+            } catch(IOException e){
+                if(cancelled)throw new IOException("Teste encerrado.");
+                if(connectionEnded(e)){
+                    if(attempt==0)continue;
+                    throw new IOException(stage+" · conexão encerrada antes de completar a resposta, mesmo após tentar novamente.");
+                }
+                String detail=e.getMessage();
+                if(detail==null || !(detail.startsWith("GetSnapshotUri:") || detail.startsWith("A câmera ") ||
+                        detail.startsWith("Foto ONVIF") || detail.startsWith("Tempo esgotado") ||
+                        detail.startsWith("O endereço ") || detail.startsWith("Resposta ") || detail.startsWith("Acesso à foto")))
+                    detail="Falha de comunicação.";
+                throw new IOException(stage+" · "+detail.replace("GetSnapshotUri: ",""));
+            }
+        }
+    }
+
+    private static boolean connectionEnded(IOException failure){
+        for(Throwable cause=failure;cause!=null;cause=cause.getCause()){
+            if(cause instanceof EOFException)return true;
+            String message=cause.getMessage();
+            if(message==null)continue;
+            String lower=message.toLowerCase(Locale.ROOT);
+            if(lower.contains("unexpected end of stream") || lower.contains("unexpected end of file") ||
+                    lower.contains("connection reset") || lower.contains("broken pipe"))return true;
+        }
+        return false;
+    }
+
+    private byte[] downloadSnapshot(URI uri) throws Exception {
         String authorization=null;
         for(int attempt=0;attempt<2;attempt++){
             if(cancelled)throw new IOException("Teste encerrado.");
@@ -132,6 +176,8 @@ final class CameraOnvif {
                 if(cancelled)throw new IOException("Teste encerrado.");
                 c.setInstanceFollowRedirects(false);c.setUseCaches(false);
                 c.setConnectTimeout(3500);c.setReadTimeout(4500);
+                c.setRequestProperty("Connection","close");
+                c.setRequestProperty("Accept-Encoding","identity");
                 c.setRequestProperty("Accept","image/jpeg");
                 if(authorization!=null)c.setRequestProperty("Authorization",authorization);
                 int code=c.getResponseCode();
@@ -153,6 +199,8 @@ final class CameraOnvif {
                         data.write(buf,0,n);
                     }
                 }
+                int length=c.getContentLength();
+                if(length>=0 && data.size()<length)throw new EOFException();
                 byte[] result=data.toByteArray();
                 if(result.length<3 || (result[0]&255)!=255 || (result[1]&255)!=216 || (result[2]&255)!=255)
                     throw new IOException("O endereço de foto não retornou um JPEG.");
@@ -214,6 +262,11 @@ final class CameraOnvif {
             try {
                 if(cancelled)throw new IOException("Teste encerrado.");
                 c.setInstanceFollowRedirects(false);c.setConnectTimeout(3500);c.setReadTimeout(4500);
+                boolean snapshot="GetSnapshotUri".equals(method);
+                if(snapshot){
+                    c.setRequestProperty("Connection","close");
+                    c.setRequestProperty("Accept-Encoding","identity");
+                }
                 c.setRequestMethod("POST");c.setDoOutput(true);
                 c.setRequestProperty("Content-Type","application/soap+xml; charset=utf-8; action=\""+namespace+"/"+method+"\"");
                 if(authorization!=null)c.setRequestProperty("Authorization",authorization);
@@ -236,6 +289,7 @@ final class CameraOnvif {
                         data.write(buf,0,n);
                     }
                 }
+                if(snapshot && c.getContentLength()>data.size())throw new EOFException();
                 Element reply=xml(data.toString("UTF-8"));
                 Element fault=first(reply,"Fault");
                 if(fault!=null || code>=400){
