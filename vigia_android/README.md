@@ -1,16 +1,26 @@
 # Vigia para Android
 
-A versão 0.2.4 inclui o teste local ONVIF/RTSP. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
+A versão 0.3.0 abre diretamente a câmera local na rede Wi-Fi. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
 
 ## Executar
 
-Abra esta pasta no Android Studio com o SDK Android 35, JDK 17 e Gradle 8.9. Sincronize o projeto, escolha o módulo `app` e execute em um aparelho com Android 8.0 ou posterior. Na tela inicial, toque em **Testar câmera no Wi-Fi**. Para conferir os vídeos de demonstração, use **Reproduzir teste**.
+Abra esta pasta no Android Studio com o SDK Android 35, JDK 17 e Gradle 8.9. Sincronize o projeto, escolha o módulo `app` e execute em um aparelho com Android 8.0 ou posterior. Na tela inicial, informe a conexão e toque em **Conectar à câmera**. **Abrir vídeos do aparelho** leva ao painel de arquivos e demonstrações.
 
 ## Testar a câmera no Wi-Fi
 
-Conecte o celular à rede da câmera e informe seu IPv4 local. O app aceita o endereço do serviço ONVIF que aparece no ONVIF Device Manager, inclusive a porta e o caminho. Com apenas o IP, usa a porta 5000. Preencha o usuário e a senha locais NVR/RTSP. A tela também aceita campos vazios para dispositivos que oferecem acesso local sem usuário. A senha permanece na memória enquanto a tela está aberta.
+Conecte o celular à rede da câmera e informe seu IPv4 local. O app aceita o endereço do serviço ONVIF que aparece no ONVIF Device Manager, inclusive a porta e o caminho. Com apenas o IP, usa a porta 5000. Preencha o usuário e a senha locais NVR/RTSP. A tela também aceita campos vazios para dispositivos que oferecem acesso local sem usuário. Marque **Lembrar login neste aparelho** para salvar a conexão após a autenticação. O Vigia cifra a senha com uma chave AES-GCM do Android Keystore. Desmarcar a opção remove a conexão salva.
 
-Ao conectar, o app consulta o relógio, o serviço de mídia ONVIF Media1 e os perfis de vídeo. O app abre o MainStream quando ele está presente na primeira fonte e usa seu endereço ONVIF para negociar uma única faixa de vídeo por RTP/UDP. Recebe H.264 ou H.265 e envia os quadros ao MediaCodec do Android. A imagem composta das duas lentes ocupa um único visor. O PC confirmou as duas cenas no MainStream por UDP. A reprodução contínua no Galaxy A40 depende do teste no aparelho. Se faltar MainStream, o app escolhe o perfil mais leve da primeira fonte. Quando há outra fonte identificada, abre seu perfil mais leve no segundo visor. Os botões de perfil permitem trocar a seleção. Se a reprodução UDP falhar, **Tentar com o player do Android** usa o reprodutor padrão para o mesmo endereço. O botão **Abrir este perfil no VLC** entrega o endereço ao VLC instalado. Caso o VLC peça autenticação, informe o usuário e a senha locais. Ao sair da tela, o app encerra os players e as consultas. Este teste requer que o equipamento disponibilize vídeo na rede local.
+Ao conectar, o app consulta o relógio, o serviço de mídia ONVIF Media1 e os perfis de vídeo. O app abre o MainStream quando ele está presente na primeira fonte e usa seu endereço ONVIF para negociar uma única faixa de vídeo por RTP/UDP. Recebe H.264 ou H.265 e envia os quadros ao MediaCodec do Android. A imagem composta das duas lentes ocupa um único visor. O PC confirmou as duas cenas no MainStream por UDP. O Galaxy A40 exibiu as duas cenas no Visor 1 com o estado “ao vivo por UDP”. Se faltar MainStream, o app escolhe o perfil mais leve da primeira fonte. Quando há outra fonte identificada, abre seu perfil mais leve no segundo visor. Os botões de perfil permitem trocar a seleção. Se a reprodução UDP falhar, **Tentar com o player do Android** usa o reprodutor padrão para o mesmo endereço. O botão **Abrir este perfil no VLC** entrega o endereço ao VLC instalado. Caso o VLC peça autenticação, informe o usuário e a senha locais. Ao sair da tela, o app encerra os players e as consultas. Este teste requer que o equipamento disponibilize vídeo na rede local.
+
+### Movimento e gravação local
+
+As quatro setas dão passos curtos na lente móvel. O app solicita a parada por velocidade zero após cada passo, inclusive se a resposta de movimento se perder. O botão **Parar movimento** permite repetir o pedido. O teste no PC confirmou esse comportamento na A29. Os controles aparecem quando a câmera anuncia o serviço PTZ.
+
+Durante o vídeo UDP no primeiro visor, **Gravar clipe** salva as duas lentes do MainStream em um MP4 sem áudio. O arquivo começa no próximo quadro-chave. Toque em **Encerrar clipe** para finalizar. Sair da tela também encerra o clipe. No Android 10 ou superior, os clipes aparecem em Filmes/Vigia na galeria. Nas versões 8 e 9, ficam na pasta externa do app em Android/data/br.vigia.mobile/files/Movies.
+
+### Ouvir a câmera
+
+Com o MainStream selecionado no Visor 1, **Ouvir** abre a faixa mono G.711 A-law por UDP em uma sessão RTSP de áudio. A escuta inicia desligada. **Silenciar**, trocar o perfil do Visor 1, desconectar ou sair da tela encerram a escuta. Use o volume de mídia do aparelho. O teste no PC recebeu seis segundos de PCMA a 16 kHz. A reprodução pelo alto-falante do A40 com o vídeo em andamento depende de validação no aparelho.
 
 ### Se a câmera responder RTSP 400
 
@@ -24,7 +34,7 @@ Na pasta do projeto, execute `node tests/painel.cjs` para testar a seleção dos
 
 ## Integração com a câmera
 
-O teste de Wi-Fi usa o serviço da própria câmera. A reprodução dos fluxos reais da câmera no Galaxy A40 ainda depende do teste no equipamento. O histórico abaixo registra a investigação da integração de conta separada.
+O teste de Wi-Fi usa o serviço da própria câmera. Os testes no A40 confirmaram a exibição das duas lentes no MainStream. A escuta, os controles de movimento e os clipes desta versão ainda precisam de validação no aparelho. O histórico abaixo registra a investigação da integração de conta separada.
 
 ### O que já foi identificado no SDK Android
 

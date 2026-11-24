@@ -10,7 +10,8 @@ public class CameraOnvifTest {
     private static boolean deny,badPhoto;
     private static String dropAction="";
     private static int drops, shortBodies;
-    private static boolean relativePhoto;
+    private static boolean relativePhoto, legacyServices;
+    private static String motionX="0.5";
     private static void check(boolean ok){if(!ok)throw new AssertionError();}
     private static final class Camera extends HttpURLConnection {
         final ByteArrayOutputStream out=new ByteArrayOutputStream();
@@ -42,6 +43,15 @@ public class CameraOnvifTest {
         public InputStream getInputStream(){
             String a=action(), fields="";
             switch(a){
+            case "GetServices":
+                if(legacyServices)throw new AssertionError("Services request should have failed before parsing");
+                fields="<Service><Namespace>"+CameraOnvif.PTZ+"</Namespace><XAddr>http://wrong.invalid:5050/ptz</XAddr></Service>";break;
+            case "ContinuousMove":
+                check(url.getPath().equals("/ptz") && url.getPort()==5050);
+                check(out.toString().contains("<m:ProfileToken>lower</m:ProfileToken>"));
+                check(out.toString().contains("x='"+motionX+"'") && out.toString().contains("PT0.5S"));
+                break;
+            case "Stop":check(out.toString().contains("<m:PanTilt>true</m:PanTilt>"));break;
             case "photo":
                 check(url.getPort()==(relativePhoto?5000:5070));
                 check(url.getPath().equals("/snapshot") && getRequestProperty("Authorization").contains("uri=\"/snapshot?view=2\""));
@@ -50,7 +60,7 @@ public class CameraOnvifTest {
                 check(out.toString().contains("lower"));
                 fields=relativePhoto?"<Uri>snapshot?view=2</Uri>":"<Uri>http://wrong.invalid:5070/snapshot?view=2</Uri>";break;
             case "GetSystemDateAndTime": fields="<UTCDateTime><Year>2026</Year><Month>11</Month><Day>23</Day><Hour>12</Hour><Minute>30</Minute><Second>15</Second></UTCDateTime>";break;
-            case "GetCapabilities":fields="<Media><XAddr>http://wrong.invalid:5000/media</XAddr></Media>";break;
+            case "GetCapabilities":fields="<Media><XAddr>http://wrong.invalid:5000/media</XAddr></Media><PTZ><XAddr>http://wrong.invalid:5050/ptz</XAddr></PTZ>";break;
             case "GetProfiles":
                 check(getRequestProperty("Authorization").startsWith("Digest "));
                 fields=profile("hd","upper")+profile("sd","upper")+profile("lower","lower");break;
@@ -79,6 +89,18 @@ public class CameraOnvifTest {
         check(p.size()==3 && p.get(0).source.equals(p.get(1).source) && !p.get(0).source.equals(p.get(2).source));
         URI stream=client.stream(p.get(2));check(stream.getHost().equals(IP) && stream.getRawPath().equals("/path%2Fone") && stream.getRawQuery().equals("q=a%20b") && stream.getUserInfo().equals("local:s&cret"));
         check(calls.equals(Arrays.asList("GetSystemDateAndTime","GetCapabilities","GetProfiles","GetProfiles","GetStreamUri")));
+        CameraOnvif motion=client.controlClient();
+        URI endpoint=motion.motionEndpoint();
+        check(endpoint.toString().equals("http://"+IP+":5050/ptz"));
+        dropAction="GetServices";drops=1;legacyServices=true;
+        check(endpoint.equals(motion.motionEndpoint()));
+        p.get(2).hasPtz=true;
+        check(CameraOnvif.motionProfile(p)==p.get(2));
+        motion.velocity(endpoint,p.get(2),0.5,0);
+        motionX="0.0";motion.stopMotion(endpoint,p.get(2));
+        dropAction="ContinuousMove";drops=1;
+        motion.stopMotion(endpoint,p.get(2));
+        check(calls.get(calls.size()-1).equals("Stop"));
         check(client.snapshot(p.get(2))[0]==-1);
         relativePhoto=true;
         for(String action:Arrays.asList("GetSnapshotUri","photo")){

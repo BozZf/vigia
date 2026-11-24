@@ -29,7 +29,7 @@ public final class Painel extends Activity {
         painel.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 if (r.isForMainFrame() && "vigia:camera".equals(r.getUrl().toString())) {
-                    startActivity(new Intent(Painel.this, CameraLocal.class));
+                    finish();
                 }
                 return true;
             }

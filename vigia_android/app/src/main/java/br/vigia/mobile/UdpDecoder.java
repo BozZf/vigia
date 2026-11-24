@@ -12,7 +12,14 @@ final class UdpDecoder implements RtspUdp.Listener,AutoCloseable {
         boolean active();
         void size(int width,int height);
         void firstFrame();
+        boolean wantsClip();
+        boolean finishingClip();
+        void recording(boolean active, String status);
+
     }
+    private final android.content.Context context;
+    private LocalClip clip;
+    private MediaFormat format;
     private final Surface surface;
     private final View view;
     private final int width,height;
@@ -22,8 +29,8 @@ final class UdpDecoder implements RtspUdp.Listener,AutoCloseable {
     private boolean hevc,shown;
     private long origin=-1;
 
-    UdpDecoder(Surface surface,int width,int height,View view){
-        this.surface=surface;this.width=width;this.height=height;this.view=view;
+    UdpDecoder(android.content.Context context,Surface surface,int width,int height,View view){
+        this.context=context;this.surface=surface;this.width=width;this.height=height;this.view=view;
     }
     public boolean active(){return view.active();}
     public void format(boolean hevc,List<byte[]> parameters){
@@ -58,13 +65,56 @@ final class UdpDecoder implements RtspUdp.Listener,AutoCloseable {
             f.setByteBuffer("csd-0",ByteBuffer.wrap(config[0]));
             f.setByteBuffer("csd-1",ByteBuffer.wrap(config[1]));
         }
+        format=f;
         codec=MediaCodec.createDecoderByType(mime);
         try{codec.configure(f,surface,null,0);codec.start();}
         catch(RuntimeException ex){throw new IOException("O Android não abriu o decodificador "+(hevc?"H.265":"H.264")+" para "+width+"×"+height+".");}
         return true;
     }
+    private boolean isKeyFrame(byte[] frame) {
+        for(int i=0;i+4<frame.length;i++){
+            if(frame[i]!=0 || frame[i+1]!=0 || frame[i+2]!=0 || frame[i+3]!=1)continue;
+            int t=type(frame[i+4]);
+            if(hevc ? t>=16 && t<=21 : t==5)return true;
+        }
+        return false;
+    }
+    private boolean clipFailed,finishNotified;
+    private void record(byte[] data,long stamp) {
+        if(!view.wantsClip()){
+            if(clip!=null)finishClip();
+            else if(view.finishingClip() && !finishNotified)view.recording(false,"Gravação cancelada antes do primeiro quadro.");
+            finishNotified=view.finishingClip();
+            clipFailed=false;
+            return;
+        }
+        finishNotified=false;
+        if(clipFailed)return;
+        try {
+            boolean key=isKeyFrame(data);
+            if(clip==null){
+                if(!key)return;
+                clip=new LocalClip(context);
+                clip.open(format,stamp);
+                view.recording(true,"Gravando vídeo sem áudio");
+            }
+            clip.write(data,stamp,key);
+        } catch(Exception e) {
+            if(clip!=null)clip.finish(false);
+            clip=null;clipFailed=true;
+            view.recording(false,"Falha ao gravar. Confira o espaço disponível.");
+        }
+    }
+    private void finishClip() {
+        boolean saved=clip.finish(true);
+        clip=null;
+        view.recording(false,saved ? (android.os.Build.VERSION.SDK_INT>=29 ?
+            "Clipe salvo em Filmes/Vigia." : "Clipe salvo na pasta Movies do Vigia.") :
+            "Não foi possível finalizar o clipe.");
+    }
     public void frame(byte[] data,long stamp)throws Exception{
         if(!active() || codec==null && !prepare(data))return;
+        record(data,stamp);
         drain();
         int input=codec.dequeueInputBuffer(20000);
         if(input>=0){
@@ -92,5 +142,5 @@ final class UdpDecoder implements RtspUdp.Listener,AutoCloseable {
             }else return;
         }
     }
-    public void close(){if(codec!=null){try{codec.release();}finally{codec=null;}}}
+    public void close(){if(clip!=null)finishClip();if(codec!=null){try{codec.release();}finally{codec=null;}}}
 }

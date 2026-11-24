@@ -16,6 +16,7 @@ import org.xml.sax.InputSource;
 final class CameraOnvif {
     static final String DEVICE = "http://www.onvif.org/ver10/device/wsdl";
     static final String MEDIA = "http://www.onvif.org/ver10/media/wsdl";
+    static final String PTZ = "http://www.onvif.org/ver20/ptz/wsdl";
     private static final String SCHEMA = "http://www.onvif.org/ver10/schema";
     private static final String WS = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -56,6 +57,7 @@ final class CameraOnvif {
     static final class Profile {
         final String token, source, name, label;
         final long pixels;
+        boolean hasPtz;
         int width=1280,height=720;
         Profile(String token,String source,String name,String label,long pixels){
             this.token=token;this.source=source;this.name=name;this.label=label;this.pixels=pixels;
@@ -94,6 +96,7 @@ final class CameraOnvif {
             }catch(NumberFormatException ignored){ /* Some cameras omit the dimensions. */ }
             Profile profile=new Profile(token,text(first(p,"VideoSourceConfiguration"),"SourceToken"),name,label,pixels);
             if(pixels!=Long.MAX_VALUE){profile.width=Integer.parseInt(size);profile.height=Integer.parseInt(height);}
+            profile.hasPtz = first(p,"PTZConfiguration") != null;
             found.add(profile);
         }
         if(found.isEmpty())throw new IOException("O serviço de vídeo não retornou perfis.");
@@ -107,6 +110,57 @@ final class CameraOnvif {
         }
         return best;
     }
+    // PTZ has its own connection so closing a video session cannot cancel the final stop.
+    CameraOnvif controlClient() throws IOException {
+        CameraOnvif control = new CameraOnvif(device.toString(), user, pass);
+        control.offsetSeconds = offsetSeconds;
+        return control;
+    }
+
+    static Profile motionProfile(List<Profile> profiles) {
+        Profile best = profiles.get(0);
+        for (Profile p : profiles) {
+            if (p.hasPtz != best.hasPtz) {
+                if (p.hasPtz) best = p;
+            } else if ("MainStream".equalsIgnoreCase(p.name)) {
+                best = p;
+            }
+        }
+        return best;
+    }
+
+    URI motionEndpoint() throws Exception {
+        try {
+            Element services = request(device, DEVICE, "GetServices", "<m:IncludeCapability>false</m:IncludeCapability>", true);
+            NodeList list = services.getElementsByTagNameNS("*", "Service");
+            for (int i = 0; i < list.getLength(); i++) {
+                Element service = (Element) list.item(i);
+                if (PTZ.equals(text(service, "Namespace")) && !text(service, "XAddr").isEmpty())
+                    return sameCamera(text(service, "XAddr"), false);
+            }
+        } catch (IOException ignored) { /* Older ONVIF devices only return capabilities. */ }
+        Element caps = request(device, DEVICE, "GetCapabilities", "<m:Category>All</m:Category>", true);
+        String location = text(first(caps, "PTZ"), "XAddr");
+        if (location.isEmpty()) throw new IOException("A câmera não anunciou o controle de movimento.");
+        return sameCamera(location, false);
+    }
+
+    void velocity(URI endpoint, Profile profile, double x, double y) throws Exception {
+        String body = "<m:ProfileToken>" + escape(profile.token) + "</m:ProfileToken>"
+            + "<m:Velocity><t:PanTilt x='" + x + "' y='" + y + "'/></m:Velocity>"
+            + "<m:Timeout>PT0.5S</m:Timeout>";
+        request(endpoint, PTZ, "ContinuousMove", body, true);
+    }
+
+    void stopMotion(URI endpoint, Profile profile) throws Exception {
+        try {
+            velocity(endpoint, profile, 0, 0);
+        } catch (IOException e) {
+            request(endpoint, PTZ, "Stop", "<m:ProfileToken>" + escape(profile.token)
+                + "</m:ProfileToken><m:PanTilt>true</m:PanTilt>", true);
+        }
+    }
+
     URI stream(Profile p) throws Exception {
         String body="<m:StreamSetup><t:Stream>RTP-Unicast</t:Stream><t:Transport><t:Protocol>RTSP</t:Protocol></t:Transport></m:StreamSetup><m:ProfileToken>"+escape(p.token)+"</m:ProfileToken>";
         Element reply=request(media,MEDIA,"GetStreamUri",body,true);

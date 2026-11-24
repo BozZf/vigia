@@ -25,6 +25,13 @@ public class RtpVideoTest {
         String sdp="v=0\r\na=control:*\r\nm=audio 0 RTP/AVP 8\r\na=control:track1\r\nm=video 0 RTP/AVP 97\r\na=rtpmap:97 H265/90000\r\na=control:track2\r\n";
         RtspUdp.Track t=RtspUdp.Track.parse(sdp);
         if(!t.hevc || t.payload!=97 || !"track2".equals(t.path))throw new AssertionError();
+        RtspUdp.Track audio=RtspUdp.Track.audio("v=0\r\nm=audio 0 RTP/AVP 97\r\na=rtpmap:97 PCMA/16000/1\r\na=control:track1\r\n");
+        if(audio.sampleRate!=16000 || audio.payload!=97)throw new AssertionError("PCMA profile");
+        PcmaRtp pcma=new PcmaRtp();
+        byte[] samples=packet(1,1,true,0xd5,0x55,0xaa,0x2a);
+        if(pcma.decode(samples,samples.length)!=4 || pcma.pcm[0]!=8 || pcma.pcm[1]!=-8 ||
+            pcma.pcm[2]!=32256 || pcma.pcm[3]!=-32256 || pcma.decode(samples,samples.length)!=0)
+            throw new AssertionError("A-law PCM or repeated packet");
         System.out.println("OK: video track, H264/H265 fragmentation, aggregation, packet loss.");
     }
 }

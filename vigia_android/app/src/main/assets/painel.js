@@ -35,7 +35,7 @@ function sources() {
     v.load();
   });
   document.querySelector('#tipo').textContent = personal() ? 'Gravações do aparelho' : 'Prévia local';
-  document.querySelector('#nota').textContent = personal() ? 'Os arquivos selecionados são reproduzidos no seu celular.' : 'Os dois vídeos de teste demonstram a reprodução no celular. Para ver a câmera, abra o teste de Wi-Fi.';
+  document.querySelector('#nota').textContent = personal() ? 'Os arquivos selecionados são reproduzidos no seu celular.' : 'Os dois vídeos de teste demonstram a reprodução no celular. Para ver a câmera, toque em Voltar à câmera.';
   caption();
 }
 videos.forEach((v, i) => {

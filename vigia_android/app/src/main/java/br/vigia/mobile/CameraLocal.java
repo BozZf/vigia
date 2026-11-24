@@ -22,46 +22,197 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class CameraLocal extends Activity {
-    private static final int INK=0xffeff5f3, SUB=0xffbac9c5, BG=0xff171b23;
+    private final ExecutorService movement = Executors.newSingleThreadExecutor();
+    private CameraOnvif control;
+    private CameraOnvif.Profile controlProfile;
+    private URI controlEndpoint;
+    private boolean moving, stopRequired, light;
+    private volatile int session;
+    private LinearLayout loginForm, movementPanel, profilePanel;
+    private CheckBox remember;
+    private CameraLogin login;
+    private Button theme, profilesToggle, gallery;
+    private TextView motionNote;
+    private final java.util.List<Button> arrows = new java.util.ArrayList<>();
+    private Button halt;
+    private int ink() { return light ? 0xff152627 : 0xfff1f5f5; }
+    private int subtle() { return light ? 0xff45565d : 0xffbdc9d0; }
+    private int background() { return light ? 0xfff3f6f6 : 0xff171b23; }
+
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private final Handler main=new Handler();
     private final ExecutorService diagnostics=Executors.newFixedThreadPool(2);
+    private final ExecutorService soundWorker=Executors.newSingleThreadExecutor();
+    private Button clipButton;
+    private TextView clipNote;
+    private volatile boolean clipRequested,clipFinishing;
+    private Button listenButton;
+    private TextView soundNote;
+    private URI soundUri;
+    private volatile int soundVersion;
+    private boolean listening;
     private CameraOnvif camera;
     private EditText address, user, password;
     private TextView status;
     private LinearLayout root, options;
     private Button connect;
     private final Pane[] panes=new Pane[2];
-    private int session;
+
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
         ScrollView scroll=new ScrollView(this);
-        root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(BG);
+        root=new LinearLayout(this);root.setOrientation(1);
         int pad=dp(15);root.setPadding(pad,pad,pad,pad);scroll.addView(root);setContentView(scroll);
-        label(root,"Câmera no Wi-Fi",24);
-        label(root,"Use o mesmo Wi-Fi da câmera. Informe o endereço local e a senha de conexão NVR/RTSP.",15);
-        address=field("IP ou endereço ONVIF","Ex.: 192.168.1.50:5000",17);
+        light=getSharedPreferences("appearance",0).getBoolean("light",false);
+        login=new CameraLogin(getSharedPreferences("camera-login",0));
+        LinearLayout header=new LinearLayout(this);root.addView(header);
+        TextView title=label(header,"Vigia",27);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
+        theme=button(header,"");
+        theme.setOnClickListener(v->{
+            light=!light;
+            getSharedPreferences("appearance",0).edit().putBoolean("light",light).apply();
+            applyTheme();
+        });
+        loginForm=column(root);
+        label(loginForm,"Câmera no Wi-Fi",20);
+        address=field("Endereço ONVIF","IP ou endereço da câmera",17);
         user=field("Usuário local","Usuário da câmera",1);user.setText("admin");
         password=field("Senha NVR/RTSP","Senha local da câmera",129);
+        remember=new CheckBox(this);remember.setText("Lembrar login neste aparelho");loginForm.addView(remember);
+        boolean lostLogin=false;
+        try {
+            String[] savedLogin=login.load();
+            if(savedLogin!=null){
+                address.setText(savedLogin[0]);user.setText(savedLogin[1]);password.setText(savedLogin[2]);
+                remember.setChecked(true);
+            }
+        } catch(Exception e) {login.forget();lostLogin=true;}
+        remember.setOnCheckedChangeListener((button,checked)->{if(!checked)login.forget();});
         connect=button(root,"Conectar à câmera");connect.setOnClickListener(v->{if(camera==null)begin();else stopSession();});
-        status=label(root,"Aguardando conexão.",15);
-        for(int i=0;i<2;i++)panes[i]=new Pane(i+1);
-        options=new LinearLayout(this);options.setOrientation(1);root.addView(options);
+        status=label(root,lostLogin?"Informe novamente a senha para salvar o login.":"Conecte o celular ao Wi-Fi da câmera.",15);
+        panes[0]=new Pane(1);
+        movementPanel=column(root);
+        label(movementPanel,"Mover câmera",19);
+        LinearLayout row=new LinearLayout(this);movementPanel.addView(row);
+        arrow(row,"←","Esquerda",-0.5,0);arrow(row,"↑","Cima",0,0.5);
+        arrow(row,"↓","Baixo",0,-0.5);arrow(row,"→","Direita",0.5,0);
+        halt=button(movementPanel,"Parar movimento");halt.setOnClickListener(v->move(0,0));
+        motionNote=label(movementPanel,"",14);
+        movementPanel.setVisibility(View.GONE);
+        panes[1]=new Pane(2);
+        profilesToggle=button(root,"Perfis de vídeo");
+        profilePanel=column(root);options=profilePanel;
+        profilesToggle.setOnClickListener(v->profilePanel.setVisibility(profilePanel.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE));
+        profilePanel.setVisibility(View.GONE);profilesToggle.setVisibility(View.GONE);
+        gallery=button(root,"Abrir vídeos do aparelho");
+        gallery.setOnClickListener(v->startActivity(new Intent(this,Painel.class)));
+        applyTheme();
+    }
+
+    private LinearLayout column(LinearLayout parent){
+        LinearLayout group=new LinearLayout(this);group.setOrientation(1);parent.addView(group);return group;
+    }
+
+    private void applyTheme(){
+        theme.setText(light?"Tema escuro":"Tema claro");
+        root.setBackgroundColor(background());
+        getWindow().setStatusBarColor(light?0xff45565d:background());
+        getWindow().setNavigationBarColor(light?0xff45565d:background());
+        tint(root);
+    }
+
+    private void tint(View view){
+        if(view instanceof TextView){
+            TextView text=(TextView)view;
+            text.setTextColor(ink());
+            if(text instanceof EditText)text.setHintTextColor(subtle());
+            if(text instanceof Button && !(text instanceof CheckBox))
+                text.setBackgroundTintList(android.content.res.ColorStateList.valueOf(light?0xffdce7e5:0xff36424d));
+        }
+        if(view instanceof ViewGroup){
+            ViewGroup group=(ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++)tint(group.getChildAt(i));
+        }
+    }
+
+    private void arrow(LinearLayout row,String text,String description,double x,double y){
+        Button b=button(row,text);
+        b.setContentDescription(description);
+        b.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
+        b.setOnClickListener(v->move(x,y));
+        arrows.add(b);
+    }
+
+    private void setupMovement(List<CameraOnvif.Profile> profiles){
+        int id=session;
+        CameraOnvif client;
+        try {client=camera.controlClient();} catch(IOException e){return;}
+        control=client;
+        controlProfile=CameraOnvif.motionProfile(profiles);
+        movement.execute(()->{
+            try {
+                if(id!=session)return;
+                URI endpoint=client.motionEndpoint();
+                main.post(()->{
+                    if(id!=session)return;
+                    controlEndpoint=endpoint;movementPanel.setVisibility(View.VISIBLE);
+                    updateMovement();
+                });
+            } catch(Exception e) {
+                main.post(()->{if(id==session)label(options,"Movimento indisponível nesta conexão.",14);});
+            }
+        });
+    }
+
+    private void updateMovement(){
+        for(Button b:arrows)b.setEnabled(!moving && !stopRequired);
+        halt.setEnabled(!moving);
+    }
+
+    private void move(double x,double y){
+        if(moving || controlEndpoint==null)return;
+        final int id=session;
+        final URI endpoint=controlEndpoint;
+        final CameraOnvif client=control;
+        final CameraOnvif.Profile profile=controlProfile;
+        moving=true;updateMovement();motionNote.setText("Enviando comando…");
+        movement.execute(()->{
+            if(id!=session)return;
+            boolean moved=true, stopped=true;
+            try {
+                if(x!=0 || y!=0){
+                    client.velocity(endpoint,profile,x,y);
+                    Thread.sleep(300);
+                }
+            } catch(Exception e) {moved=false;}
+            finally {
+                try {client.stopMotion(endpoint,profile);} catch(Exception e){stopped=false;}
+            }
+            final boolean retry=!stopped;
+            final String result=retry?"Parada sem confirmação. Toque em Parar movimento.":
+                moved?"Parada confirmada.":"Movimento sem confirmação. Parada confirmada.";
+            main.post(()->{
+                if(id!=session)return;
+                moving=false;stopRequired=retry;updateMovement();motionNote.setText(result);
+            });
+        });
     }
     private int dp(int x){return Math.round(x*getResources().getDisplayMetrics().density);}
     private TextView label(LinearLayout parent,String title,int size){
-        TextView v=new TextView(this);v.setText(title);v.setTextColor(size>17?INK:SUB);v.setTextSize(size);
+        TextView v=new TextView(this);v.setText(title);v.setTextColor(size>17?ink():subtle());v.setTextSize(size);
         v.setPadding(0,dp(5),0,dp(3));parent.addView(v);return v;
     }
     private EditText field(String title,String hint,int type){
-        label(root,title,14); EditText v=new EditText(this);v.setSingleLine(true);v.setInputType(type);
-        v.setHint(hint);v.setHintTextColor(SUB);v.setTextColor(INK);root.addView(v);return v;
+        label(loginForm,title,14); EditText v=new EditText(this);v.setSingleLine(true);v.setInputType(type);
+        v.setHint(hint);v.setHintTextColor(subtle());v.setTextColor(ink());loginForm.addView(v);return v;
     }
     private Button button(LinearLayout parent,String title){
-        Button b=new Button(this);b.setText(title);b.setAllCaps(false);parent.addView(b);return b;
+        Button b=new Button(this);b.setText(title);b.setAllCaps(false);parent.addView(b);tint(b);return b;
     }
     private void setInputs(boolean enabled){
+        loginForm.setVisibility(enabled?View.VISIBLE:View.GONE);gallery.setVisibility(enabled?View.VISIBLE:View.GONE);
         address.setEnabled(enabled);user.setEnabled(enabled);password.setEnabled(enabled);
         connect.setText(enabled?"Conectar à câmera":"Desconectar");
     }
@@ -92,10 +243,13 @@ public final class CameraLocal extends Activity {
                 second=CameraOnvif.lightest(list,p.source);break;
             }
         }
-        status.setText(list.size()+" perfil(is) recebido(s). "+
-            (second!=null?"Duas fontes distintas anunciadas.":
-            "Os perfis podem ser qualidades da mesma imagem. Confira se o visor mostra as duas cenas."));
-        label(options,"Perfis da câmera",19);
+        status.setText("Conectado à câmera");
+        if(remember.isChecked()){
+            try {login.save(address.getText().toString(),user.getText().toString(),password.getText().toString());}
+            catch(Exception e){remember.setChecked(false);status.setText("Conectado. O aparelho não conseguiu salvar o login.");}
+        }
+        profilesToggle.setVisibility(View.VISIBLE);
+        setupMovement(list);
         for(CameraOnvif.Profile p:list){
             label(options,p.label,15);
             LinearLayout row=new LinearLayout(this);options.addView(row);
@@ -104,7 +258,8 @@ public final class CameraLocal extends Activity {
         select(0,first);if(second!=null)select(1,second);
     }
     private void select(int index,CameraOnvif.Profile profile){
-        Pane pane=panes[index];pane.clear();
+        if(index==0){setSoundSource(null);resetClip();}
+        Pane pane=panes[index];pane.clear();pane.group.setVisibility(View.VISIBLE);
         pane.profile=profile;pane.title=profile.label;pane.useUdp=profile.name.equalsIgnoreCase("MainStream");
         pane.photoButton.setVisibility(View.VISIBLE);
         int version=pane.generation,id=session;CameraOnvif client=camera;
@@ -112,7 +267,7 @@ public final class CameraLocal extends Activity {
         worker.execute(()->{
             try{
                 URI uri=client.stream(profile);
-                runOnUiThread(()->{if(id==session && version==pane.generation){pane.stream=uri;pane.directUri=direct(client,profile,uri);pane.start();}});
+                runOnUiThread(()->{if(id==session && version==pane.generation){pane.stream=uri;if(index==0 && pane.useUdp)setSoundSource(uri);pane.directUri=direct(client,profile,uri);pane.start();}});
             }catch(Exception e){runOnUiThread(()->{if(id==session && version==pane.generation){
                 pane.note.setText(message(e));pane.directUri=direct(client,profile,null);
                 if(pane.directUri!=null)pane.directButton.setVisibility(View.VISIBLE);
@@ -123,15 +278,57 @@ public final class CameraLocal extends Activity {
         try{return client.directStream(profile,uri);}
         catch(IOException ignored){return null;}
     }
+    private void resetClip(){
+        clipRequested=false;clipFinishing=false;clipButton.setVisibility(View.GONE);clipButton.setText("Gravar clipe");
+        clipNote.setText("");
+    }
+    private void setSoundSource(URI uri){
+        stopListening();soundUri=uri;
+        listenButton.setVisibility(uri==null?View.GONE:View.VISIBLE);
+    }
+    private void stopListening(){
+        ++soundVersion;listening=false;
+        listenButton.setText("Ouvir");soundNote.setVisibility(View.GONE);
+    }
+    private void toggleListening(){
+        if(listening){stopListening();return;}
+        URI uri=soundUri;
+        if(uri==null)return;
+        final int version=++soundVersion;listening=true;
+        listenButton.setText("Silenciar");soundNote.setText("Abrindo áudio por UDP…");soundNote.setVisibility(View.VISIBLE);
+        soundWorker.execute(()->{
+            if(version!=soundVersion)return;
+            try(CameraSpeaker speaker=new CameraSpeaker(()->version==soundVersion,()->main.post(()->{
+                if(version==soundVersion)soundNote.setText("Ouvindo a câmera");
+            }))){
+                new RtspUdp(uri).listen(speaker);
+            }catch(Exception ex){
+                main.post(()->{
+                    if(version!=soundVersion)return;
+                    stopListening();soundNote.setText("Escuta interrompida. "+soundError(ex));soundNote.setVisibility(View.VISIBLE);
+                });
+            }
+        });
+    }
+    private String soundError(Exception e){
+        String msg=e.getMessage();
+        if(e.getClass()==IOException.class && msg!=null && msg.matches("(A câmera|O celular|A saída|PLAY|SETUP|OPTIONS|DESCRIBE|Sem par|Autenticação|Endereço).*"))return msg;
+        return "Falha na conexão de áudio ou na saída de som.";
+    }
     private void stopSession(){
+        setSoundSource(null);
+        resetClip();
         ++session;
+        control=null;controlProfile=null;controlEndpoint=null;moving=false;stopRequired=false;
+        movementPanel.setVisibility(View.GONE);motionNote.setText("");
+        profilesToggle.setVisibility(View.GONE);profilePanel.setVisibility(View.GONE);
         if(camera!=null)camera.cancel();camera=null;
-        for(Pane p:panes)if(p!=null)p.clear();
+        for(Pane p:panes)if(p!=null){p.clear();p.group.setVisibility(View.GONE);}
         options.removeAllViews();setInputs(true);status.setText("Desconectado.");
     }
     @Override protected void onStop(){stopSession();super.onStop();}
     @Override protected void onDestroy(){
-        worker.shutdownNow();diagnostics.shutdownNow();
+        movement.shutdown();worker.shutdownNow();diagnostics.shutdownNow();soundWorker.shutdownNow();
         for(Pane p:panes)if(p!=null){p.release();p.thread.quitSafely();}
         super.onDestroy();
     }
@@ -155,16 +352,33 @@ public final class CameraLocal extends Activity {
         volatile int generation;
         volatile int attempt;
         Runnable timer;
+        final LinearLayout group;
+        final boolean primary;
         Pane(int number){
+            primary=number==1;
+            group=column(root);group.setVisibility(View.GONE);
             thread=new HandlerThread("vigia-visor-"+number);thread.start();
             playback=new Handler(thread.getLooper());
-            label(root,"Visor "+number,19);note=label(root,"Sem vídeo",14);
-            view=new SurfaceView(CameraLocal.this);root.addView(view,-1,dp(146));view.getHolder().addCallback(this);
+            label(group,number==1?"Ao vivo":"Segundo visor",19);note=label(group,"Sem vídeo",14);
+            view=new SurfaceView(CameraLocal.this);group.addView(view,-1,dp(146));view.getHolder().addCallback(this);
             photo=new ImageView(CameraLocal.this);photo.setAdjustViewBounds(true);
-            root.addView(photo,-1,-2);photo.setVisibility(View.GONE);
-            photoButton=button(root,"Ver fotos ONVIF");photoButton.setVisibility(View.GONE);
+            group.addView(photo,-1,-2);photo.setVisibility(View.GONE);
+            if(number==1){
+                clipButton=button(group,"Gravar clipe");clipButton.setVisibility(View.GONE);
+                clipNote=label(group,"",14);
+                clipButton.setOnClickListener(v->{
+                    clipRequested=!clipRequested;
+                    clipButton.setText(clipRequested?"Encerrar clipe":"Gravar clipe");
+                    clipNote.setText(clipRequested?"Aguardando quadro inicial…":"Finalizando clipe…");
+                    if(!clipRequested){clipFinishing=true;clipButton.setEnabled(false);}
+                });
+                listenButton=button(group,"Ouvir");listenButton.setVisibility(View.GONE);
+                listenButton.setOnClickListener(v->toggleListening());
+                soundNote=label(group,"",14);soundNote.setVisibility(View.GONE);
+            }
+            photoButton=button(group,"Ver fotos ONVIF");photoButton.setVisibility(View.GONE);
             photoButton.setOnClickListener(v->{if(photos)stopPhotos(true);else startPhotos();});
-            directButton=button(root,"Testar RTSP direto");directButton.setVisibility(View.GONE);
+            directButton=button(group,"Testar RTSP direto");directButton.setVisibility(View.GONE);
             directButton.setOnClickListener(v->{
                 if(directUri==null)return;
                 stopPhotos(false);photo.setVisibility(View.GONE);photo.setImageBitmap(null);
@@ -172,12 +386,12 @@ public final class CameraLocal extends Activity {
                 title=profile.label+" (direto)";
                 directButton.setVisibility(View.GONE);start();
             });
-            systemPlayer=button(root,"Tentar com o player do Android");systemPlayer.setVisibility(View.GONE);
+            systemPlayer=button(group,"Tentar com o player do Android");systemPlayer.setVisibility(View.GONE);
             systemPlayer.setOnClickListener(v->{
                 if(stream==null)return;
                 release();useUdp=false;systemPlayer.setVisibility(View.GONE);start();
             });
-            vlc=button(root,"Abrir este perfil no VLC");
+            vlc=button(group,"Abrir este perfil no VLC");
             vlc.setVisibility(View.GONE);
             vlc.setOnClickListener(v->{
                 URI selected=stream;
@@ -240,6 +454,7 @@ public final class CameraLocal extends Activity {
             });
         }
         void release(){
+            if(primary)resetClip();
             ++attempt;opening=false;
             if(timer!=null){main.removeCallbacks(timer);timer=null;}
             playback.post(()->{
@@ -309,6 +524,13 @@ public final class CameraLocal extends Activity {
             if(id!=attempt)return;
             UdpDecoder.View callbacks=new UdpDecoder.View(){
                 public boolean active(){return id==attempt;}
+                public boolean wantsClip(){return primary && active() && clipRequested;}
+                public boolean finishingClip(){return primary && active() && clipFinishing;}
+                public void recording(boolean recording,String detail){main.post(()->{
+                    if(!active() || !primary)return;
+                    if(!recording){clipFinishing=false;clipRequested=false;clipButton.setEnabled(true);clipButton.setText("Gravar clipe");}
+                    clipNote.setText(detail);
+                });}
                 public void size(int w,int h){main.post(()->{
                     if(!active() || w<=0 || h<=0 || view.getWidth()==0)return;
                     ViewGroup.LayoutParams lp=view.getLayoutParams();
@@ -318,9 +540,11 @@ public final class CameraLocal extends Activity {
                     if(!active())return;
                     if(timer!=null)main.removeCallbacks(timer);
                     note.setText(title+" · ao vivo por UDP");
+                    if(primary){clipButton.setVisibility(View.VISIBLE);clipButton.setEnabled(true);}
+
                 });}
             };
-            try(UdpDecoder decoder=new UdpDecoder(view.getHolder().getSurface(),width,height,callbacks)){
+            try(UdpDecoder decoder=new UdpDecoder(CameraLocal.this,view.getHolder().getSurface(),width,height,callbacks)){
                 new RtspUdp(selected).play(decoder);
             }catch(Exception ex){
                 String reason=ex instanceof java.net.SocketTimeoutException?"Tempo esgotado na negociação RTSP.":

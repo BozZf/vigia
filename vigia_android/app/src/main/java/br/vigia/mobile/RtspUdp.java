@@ -6,12 +6,22 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.*;
 
-/** One RTSP control connection and one unicast UDP video track. */
+/** One RTSP control connection and one unicast UDP media track. */
 final class RtspUdp {
     interface Listener {
         boolean active();
         void format(boolean hevc,List<byte[]> parameters)throws Exception;
         void frame(byte[] data,long timestamp)throws Exception;
+    }
+    interface AudioListener {
+        boolean active();
+        void format(int sampleRate)throws Exception;
+        void samples(short[] pcm,int count)throws Exception;
+    }
+    private interface Receiver {
+        boolean active();
+        Track select(String sdp)throws Exception;
+        void packet(byte[] data,int length)throws Exception;
     }
     private final URI url;
     private final String[] login;
@@ -33,7 +43,7 @@ final class RtspUdp {
                     token="Basic "+Base64.getEncoder().encodeToString((u+":"+p).getBytes(StandardCharsets.UTF_8));
                 if(token!=null)auth="Authorization: "+token+"\r\n";
             }
-            String msg=method+" "+target.toASCIIString()+" RTSP/1.0\r\nCSeq: "+(++sequence)+"\r\nUser-Agent: Vigia/0.2.4\r\n"+
+            String msg=method+" "+target.toASCIIString()+" RTSP/1.0\r\nCSeq: "+(++sequence)+"\r\nUser-Agent: Vigia/0.3.0\r\n"+
                 (session.isEmpty()?"":"Session: "+session+"\r\n")+headers+auth+"\r\n";
             control.getOutputStream().write(msg.getBytes(StandardCharsets.UTF_8));
             DiagnosticoRtsp.Reply r=DiagnosticoRtsp.read(control.getInputStream());
@@ -84,6 +94,33 @@ final class RtspUdp {
             }
             throw new IOException("A câmera não anunciou vídeo H.264 ou H.265.");
         }
+        int sampleRate;
+        static Track audio(String sdp)throws IOException{
+            String[] sections=sdp.replace("\r","").split("(?m)^m=");
+            for(int i=1;i<sections.length;i++){
+                String block=sections[i];
+                String[] fields=block.split("\n",2)[0].trim().split("\\s+");
+                if(fields.length<4 || !fields[0].equals("audio"))continue;
+                for(int j=3;j<fields.length;j++){
+                    if(!fields[j].matches("[0-9]{1,3}"))continue;
+                    int id=Integer.parseInt(fields[j]);
+                    if(id>127)continue;
+                    Matcher map=Pattern.compile("(?im)^a=rtpmap:"+id+"[ \\t]+([^\\s]+)").matcher(block);
+                    int rate=8000;
+                    if(map.find()){
+                        Matcher format=Pattern.compile("(?i)PCMA/([0-9]{4,5})(?:/1)?").matcher(map.group(1));
+                        if(!format.matches())continue;
+                        rate=Integer.parseInt(format.group(1));
+                        if(rate<8000 || rate>48000)continue;
+                    }else if(id!=8)continue;
+                    Track track=new Track();
+                    track.payload=id;track.sampleRate=rate;track.path=attribute(block,"control");
+                    track.aggregate=attribute(sections[0],"control");
+                    return track;
+                }
+            }
+            throw new IOException("A câmera não anunciou áudio mono G.711 A-law.");
+        }
         static String attribute(String section,String key){
             Matcher m=Pattern.compile("(?m)^a="+key+":(.+)$").matcher(section);
             return m.find()?m.group(1).trim():"";
@@ -100,17 +137,46 @@ final class RtspUdp {
             (resolved.getRawQuery()==null?"":"?"+resolved.getRawQuery()));
     }
     void play(Listener listener)throws Exception{
+        run(new Receiver(){
+            private RtpVideo parser;
+            public boolean active(){return listener.active();}
+            public Track select(String sdp)throws Exception{
+                Track track=Track.parse(sdp);
+                listener.format(track.hevc,track.parameters);
+                parser=new RtpVideo(track.hevc,track.payload,listener::frame);
+                return track;
+            }
+            public void packet(byte[] data,int length)throws Exception{parser.packet(data,length);}
+        });
+    }
+    void listen(AudioListener listener)throws Exception{
+        run(new Receiver(){
+            private final PcmaRtp decoder=new PcmaRtp();
+            public boolean active(){return listener.active();}
+            public Track select(String sdp)throws Exception{
+                Track track=Track.audio(sdp);
+                listener.format(track.sampleRate);
+                return track;
+            }
+            public void packet(byte[] data,int length)throws Exception{
+                int count=decoder.decode(data,length);
+                if(count>0)listener.samples(decoder.pcm,count);
+            }
+        });
+    }
+    private void run(Receiver listener)throws Exception{
+        if(!listener.active())return;
         try{
             connect();
             request("OPTIONS",url,"");
             DiagnosticoRtsp.Reply desc=request("DESCRIBE",url,"Accept: application/sdp\r\n");
-            Track video=Track.parse(desc.body);
+            Track media=listener.select(desc.body);
             URI base=desc.base.isEmpty()?url:local(url,desc.base);
             URI trackBase=base;
             if(!base.getPath().endsWith("/"))trackBase=URI.create("rtsp://"+url.getRawAuthority()+base.getRawPath()+"/");
-            URI track=video.path.isEmpty() || video.path.equals("*")?base:local(trackBase,video.path);
-            URI aggregate=local(base,video.aggregate);
-            listener.format(video.hevc,video.parameters);
+            URI track=media.path.isEmpty() || media.path.equals("*")?base:local(trackBase,media.path);
+            URI aggregate=local(base,media.aggregate);
+
             for(int attempt=0;attempt<32;attempt++){
                 if(!listener.active())return;
                 try(DatagramSocket rtp=new DatagramSocket(0,control.getLocalAddress())){
@@ -119,7 +185,7 @@ final class RtspUdp {
                     DatagramSocket second;
                     try{second=new DatagramSocket(port+1,control.getLocalAddress());}catch(BindException e){continue;}
                     try(DatagramSocket rtcp=second){
-                        receive(listener,video,track,aggregate,rtp);
+                        receive(listener,media,track,aggregate,rtp);
                     }
                     return;
                 }
@@ -134,7 +200,7 @@ final class RtspUdp {
             }
         }
     }
-    private void receive(Listener listener,Track track,URI path,URI aggregate,DatagramSocket rtp)throws Exception{
+    private void receive(Receiver listener,Track track,URI path,URI aggregate,DatagramSocket rtp)throws Exception{
         rtp.setReceiveBufferSize(2*1024*1024);rtp.setSoTimeout(300);
         int port=rtp.getLocalPort();
         DiagnosticoRtsp.Reply setup=request("SETUP",path,"Transport: RTP/AVP/UDP;unicast;client_port="+port+"-"+(port+1)+"\r\n");
@@ -144,7 +210,7 @@ final class RtspUdp {
         if(setup.transport.toUpperCase(Locale.ROOT).contains("TCP"))throw new IOException("A câmera recusou RTP por UDP.");
         for(String f:fields)if(f.trim().matches("timeout=[0-9]{1,6}"))keepAliveSeconds=Math.max(1,Math.min(20,Integer.parseInt(f.trim().substring(8))/2));
         request("PLAY",aggregate,"Range: npt=0.000-\r\n");
-        RtpVideo parser=new RtpVideo(track.hevc,track.payload,listener::frame);
+
         byte[] buf=new byte[65535];DatagramPacket packet=new DatagramPacket(buf,buf.length);
         long last=System.nanoTime(),alive=last;
         while(listener.active()){
@@ -152,11 +218,11 @@ final class RtspUdp {
             try{
                 rtp.receive(packet);
                 if(control.getInetAddress().equals(packet.getAddress()) && packet.getLength()>=12 && (buf[1]&127)==track.payload){
-                    last=System.nanoTime();parser.packet(buf,packet.getLength());
+                    last=System.nanoTime();listener.packet(buf,packet.getLength());
                 }
             }catch(SocketTimeoutException ignored){}
             long now=System.nanoTime();
-            if(now-last>8_000_000_000L)throw new IOException("PLAY aceito. Nenhum pacote de vídeo UDP recebido nos últimos 8 s.");
+            if(now-last>8_000_000_000L)throw new IOException("PLAY aceito. Nenhum pacote de mídia UDP recebido nos últimos 8 s.");
             if(now-alive>keepAliveSeconds*1_000_000_000L){request("OPTIONS",aggregate,"");alive=System.nanoTime();}
         }
     }
