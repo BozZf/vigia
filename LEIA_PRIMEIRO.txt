@@ -1,0 +1,28 @@
+Vigia 0.5.1 para Windows
+
+Extraia o ZIP inteiro em uma pasta nova e abra INICIAR.cmd. Use a instalação Yoosee 1.0.0.14 e o mesmo Python de 64 bits dos testes anteriores (Python 3.11 ou superior, com Tkinter). A prévia gráfica autentica a conta e abre as duas lentes. Se a instalação estiver em outra pasta, o painel pede que você selecione Yoosee.exe.
+
+Aparência e conta
+Em Preferências, escolha Claro ou Escuro. A escolha fica salva neste Windows. Na tela de entrada, “Manter login neste Windows” salva os dados protegidos pela conta do Windows após a autenticação. Em Preferências, “Esquecer login salvo” apaga essa cópia. “Sair da conta” encerra a sessão em uso.
+
+Luz, áudio e expulsão
+Clique em Luz branca para ligar. Ao receber a resposta da câmera, a tecla ganha destaque e o contorno da lâmpada acende. Clique outra vez para desligar. O destaque acompanha os comandos desta sessão. Alterações feitas em outro aparelho podem mudar o estado físico.
+“Ouvir câmera”, “Falar por 5 s” e as quatro setas controlam a câmera ao vivo.
+Em Preferências, escolha um arquivo de áudio local, por exemplo um MP3 ou WAV. O Windows o prepara para a câmera. Clique em Expulsão para repetir esse áudio pelo alto-falante da câmera e alternar a luz. Clique em Parar expulsão para encerrar. O painel aguarda a resposta de cada comando de luz e restaura o último estado que ele conhecia após uma alternância. Ao sair da câmera, também solicita o encerramento. Nesta modalidade a fonte de áudio é o arquivo escolhido.
+
+Gravação contínua e retenção de sete dias
+Escolha seu destino em Preferências antes de começar. Com a câmera conectada, clique em “Gravar 24 h”. Para iniciar também nas próximas conexões, ative “Gravar ao conectar”. Deixe o PC ligado, sem suspensão, e o painel aberto. “Parar gravação” fecha o arquivo atual.
+
+O painel usa a hora local do Windows e troca de arquivo à meia-noite. Cada fluxo de lente fornecido pela câmera gera um MP4 com data, horário de início e número da lente. Se começar à tarde, o primeiro arquivo cobre o restante do dia. Se o sinal cair, o painel tenta reconectar e começa outro arquivo quando o vídeo volta. A interrupção fica fora da gravação. Um encerramento abrupto pode deixar o último MP4 incompleto.
+
+O vídeo é gravado primeiro no PC. Ao fechar cada MP4, o painel o encaminha ao destino configurado. “Abrir pasta” mostra as sessões locais. Reserve espaço para as duas lentes no disco e na nuvem. As entregas pendentes são retomadas enquanto o painel está aberto e a gravação ainda está dentro do prazo.
+
+A retenção conta hoje e as seis datas anteriores. Em 23/11 ficam as gravações de 17 a 23/11. Em 24/11 vencem as de 17/11. O painel remove os arquivos vencidos que ele registrou no PC e na pasta sincronizada. No Drive direto, envia os arquivos vencidos para a lixeira. Arquivos de versões anteriores ficam preservados. Se o painel estiver fechado, a limpeza é retomada ao reabrir. A limpeza remota precisa de acesso ao destino correspondente.
+
+Duas maneiras de vincular a nuvem
+• Pasta sincronizada. Abra Preferências > Vincular pasta e escolha uma pasta em Meu Drive no Google Drive para computador, ou no seu OneDrive. O painel copia o MP4 finalizado para essa pasta. O cliente de sincronização mostra quando o upload termina.
+• Drive direto. Em Preferências > Conectar Google Drive, selecione o JSON de um cliente OAuth do tipo “App para computador”. Habilite a Google Drive API no projeto Google Cloud desse cliente e, se o aplicativo estiver em teste, inclua a conta Google como usuário de teste. Autorize no navegador. O painel cria “Vigia - Gravações” no seu Drive. Ele solicita o escopo drive.file, guarda o acesso protegido pelo Windows, envia em blocos e verifica o tamanho e o MD5 após o upload. Informações do Google sobre clientes de desktop: https://developers.google.com/identity/protocols/oauth2/native-app
+• “Desvincular” remove o vínculo local e usa somente o PC para os próximos clipes. A retenção local continua. A limpeza de arquivos do Drive direto requer o vínculo com o destino original. Pendências de um vínculo direto não são redirecionadas para outro Drive. Você pode revogar o acesso também nas configurações de sua conta Google.
+
+Verificação no equipamento
+Confira as duas lentes. Alterne a luz, escolha um áudio curto, ative a expulsão e clique novamente para parar. Para o primeiro clipe, escolha o destino antes de gravar, deixe alguns segundos, pare e abra o MP4. Confira também o arquivo no destino. O diagnóstico resultado_painel_yoosee.json fica na pasta extraída ao encerrar a sessão. A rotina anterior de diagnóstico continua acessível executando video.py pelo Python.
