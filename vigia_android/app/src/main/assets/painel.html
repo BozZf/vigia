@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; media-src 'self' file: blob:; img-src 'self';">
+<title>Vigia</title><link rel="stylesheet" href="painel.css">
+<header><strong>Vigia<span>•</span></strong><button id="tema" aria-label="Alternar tema"></button></header>
+<main><h1>Duas lentes</h1><p class="tipo" id="tipo">Prévia local</p>
+<section aria-label="Lentes">
+<article><div class="top"><h2>Lente superior</h2><span class="estado" id="s0" role="status">Pronta</span></div><video muted playsinline preload="metadata" aria-label="Vídeo da lente superior"></video></article>
+<article><div class="top"><h2>Lente inferior</h2><span class="estado" id="s1" role="status">Pronta</span></div><video muted playsinline preload="metadata" aria-label="Vídeo da lente inferior"></video></article>
+</section>
+<button class="principal" id="play">Reproduzir teste</button>
+<p class="aviso" id="nota">Os dois vídeos de teste demonstram a reprodução no celular. A câmera Casa ainda não está conectada.</p>
+<details><summary>Usar minhas gravações</summary><p>Escolha um vídeo para cada lente neste aparelho.</p>
+<label class="arquivo">Escolher vídeo superior<input aria-label="Escolher vídeo superior" type="file" accept="video/*" data-lens="0"></label>
+<label class="arquivo">Escolher vídeo inferior<input aria-label="Escolher vídeo inferior" type="file" accept="video/*" data-lens="1"></label>
+<button id="reset">Voltar aos vídeos de teste</button></details></main>
+<script src="painel.js"></script></html>
