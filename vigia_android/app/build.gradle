@@ -6,8 +6,8 @@ android {
         applicationId 'br.vigia.mobile'
         minSdk 26
         targetSdk 32
-        versionCode 3
-        versionName '0.2.1'
+        versionCode 4
+        versionName '0.2.2'
     }
     androidResources { noCompress += 'mp4' }
 }

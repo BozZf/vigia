@@ -89,6 +89,8 @@ final class DiagnosticoRtsp {
             }
             if(reply.status==401 || reply.status==403)return "RTSP recusou o acesso ("+reply.status+").";
             if(reply.status==404)return "RTSP não encontrou o fluxo (404).";
+            if(reply.status==400)return "DESCRIBE recusado (RTSP 400, porta "+(clean.getPort()<0?554:clean.getPort())+
+                (auth==null?", consulta inicial).":", após autenticação).");
             return "A câmera respondeu RTSP "+reply.status+".";
         }
         throw new IOException();
@@ -104,7 +106,7 @@ final class DiagnosticoRtsp {
                 socket.connect(new InetSocketAddress(target.getHost(),target.getPort()<0?554:target.getPort()),2500);
                 socket.setSoTimeout(3000);
             }
-            String req="DESCRIBE "+target.toASCIIString()+" RTSP/1.0\r\nCSeq: "+seq+"\r\nAccept: application/sdp\r\n"+
+            String req="DESCRIBE "+target.toASCIIString()+" RTSP/1.0\r\nCSeq: "+seq+"\r\nUser-Agent: Vigia/0.2.2\r\nAccept: application/sdp\r\n"+
                 (auth==null?"":"Authorization: "+auth+"\r\n")+"\r\n";
             socket.getOutputStream().write(req.getBytes(StandardCharsets.UTF_8));
             Reply r=read(socket.getInputStream());

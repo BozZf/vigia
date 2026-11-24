@@ -54,10 +54,10 @@ final class CameraOnvif {
         if(c!=null)c.disconnect();
     }
     static final class Profile {
-        final String token, source, label;
+        final String token, source, name, label;
         final long pixels;
-        Profile(String token,String source,String label,long pixels){
-            this.token=token;this.source=source;this.label=label;this.pixels=pixels;
+        Profile(String token,String source,String name,String label,long pixels){
+            this.token=token;this.source=source;this.name=name;this.label=label;this.pixels=pixels;
         }
     }
     List<Profile> profiles() throws Exception {
@@ -91,7 +91,7 @@ final class CameraOnvif {
                 int w=Integer.parseInt(size), h=Integer.parseInt(height);
                 if(w>0 && h>0)pixels=(long)w*h;
             }catch(NumberFormatException ignored){ /* Some cameras omit the dimensions. */ }
-            found.add(new Profile(token,text(first(p,"VideoSourceConfiguration"),"SourceToken"),label,pixels));
+            found.add(new Profile(token,text(first(p,"VideoSourceConfiguration"),"SourceToken"),name,label,pixels));
         }
         if(found.isEmpty())throw new IOException("O serviço de vídeo não retornou perfis.");
         return found;
@@ -108,6 +108,59 @@ final class CameraOnvif {
         String body="<m:StreamSetup><t:Stream>RTP-Unicast</t:Stream><t:Transport><t:Protocol>RTSP</t:Protocol></t:Transport></m:StreamSetup><m:ProfileToken>"+escape(p.token)+"</m:ProfileToken>";
         Element reply=request(media,MEDIA,"GetStreamUri",body,true);
         return sameCamera(text(reply,"Uri"),true);
+    }
+    URI directStream(Profile p, URI advertised) throws IOException {
+        String path;
+        if("MainStream".equalsIgnoreCase(p.name))path="/onvif1";
+        else if("SubStream".equalsIgnoreCase(p.name))path="/onvif2";
+        else return null;
+        if(advertised!=null && (advertised.getPort()==554 || advertised.getPort()==-1) &&
+                path.equals(advertised.getRawPath()) && advertised.getRawQuery()==null)return null;
+        return sameCamera("rtsp://"+device.getHost()+":554"+path,true);
+    }
+
+    byte[] snapshot(Profile p) throws Exception {
+        String body="<m:ProfileToken>"+escape(p.token)+"</m:ProfileToken>";
+        Element reply=request(media,MEDIA,"GetSnapshotUri",body,true);
+        URI uri=sameCamera(text(reply,"Uri"),false);
+        String authorization=null;
+        for(int attempt=0;attempt<2;attempt++){
+            if(cancelled)throw new IOException("Teste encerrado.");
+            HttpURLConnection c=(HttpURLConnection)uri.toURL().openConnection(Proxy.NO_PROXY);
+            current=c;
+            try{
+                if(cancelled)throw new IOException("Teste encerrado.");
+                c.setInstanceFollowRedirects(false);c.setUseCaches(false);
+                c.setConnectTimeout(3500);c.setReadTimeout(4500);
+                c.setRequestProperty("Accept","image/jpeg");
+                if(authorization!=null)c.setRequestProperty("Authorization",authorization);
+                int code=c.getResponseCode();
+                if(code==401 && attempt==0 && !user.isEmpty()){
+                    String challenge=c.getHeaderField("WWW-Authenticate");
+                    String target=uri.getRawPath()+(uri.getRawQuery()==null?"":"?"+uri.getRawQuery());
+                    authorization=digestHeader(challenge,"GET",target,user,pass);
+                    if(authorization==null && challenge!=null && challenge.regionMatches(true,0,"Basic ",0,6))
+                        authorization="Basic "+Base64.getEncoder().encodeToString((user+":"+pass).getBytes(StandardCharsets.UTF_8));
+                    if(authorization!=null)continue;
+                }
+                if(code!=200)throw new IOException("Foto ONVIF: HTTP "+code+".");
+                ByteArrayOutputStream data=new ByteArrayOutputStream();
+                try(InputStream in=c.getInputStream()){
+                    byte[] buf=new byte[8192];int n;
+                    while((n=in.read(buf))!=-1){
+                        if(cancelled)throw new IOException("Teste encerrado.");
+                        if(data.size()+n>8*1024*1024)throw new IOException("Foto ONVIF excede 8 MB.");
+                        data.write(buf,0,n);
+                    }
+                }
+                byte[] result=data.toByteArray();
+                if(result.length<3 || (result[0]&255)!=255 || (result[1]&255)!=216 || (result[2]&255)!=255)
+                    throw new IOException("O endereço de foto não retornou um JPEG.");
+                return result;
+            }catch(SocketTimeoutException e){throw new IOException("Tempo esgotado ao receber a foto ONVIF.");}
+            finally{current=null;c.disconnect();}
+        }
+        throw new IOException("Acesso à foto recusado.");
     }
     URI sameCamera(String address, boolean rtsp) throws IOException {
         try {

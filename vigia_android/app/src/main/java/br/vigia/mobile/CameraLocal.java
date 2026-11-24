@@ -9,6 +9,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.media.MediaPlayer;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.ViewGroup;
@@ -100,14 +102,23 @@ public final class CameraLocal extends Activity {
     }
     private void select(int index,CameraOnvif.Profile profile){
         Pane pane=panes[index];pane.clear();
+        pane.profile=profile;pane.title=profile.label;
+        pane.photoButton.setVisibility(View.VISIBLE);
         int version=pane.generation,id=session;CameraOnvif client=camera;
         pane.note.setText(profile.label+" · solicitando vídeo…");
         worker.execute(()->{
             try{
                 URI uri=client.stream(profile);
-                runOnUiThread(()->{if(id==session && version==pane.generation){pane.stream=uri;pane.title=profile.label;pane.start();}});
-            }catch(Exception e){runOnUiThread(()->{if(id==session && version==pane.generation)pane.note.setText(message(e));});}
+                runOnUiThread(()->{if(id==session && version==pane.generation){pane.stream=uri;pane.directUri=direct(client,profile,uri);pane.start();}});
+            }catch(Exception e){runOnUiThread(()->{if(id==session && version==pane.generation){
+                pane.note.setText(message(e));pane.directUri=direct(client,profile,null);
+                if(pane.directUri!=null)pane.directButton.setVisibility(View.VISIBLE);
+            }});}
         });
+    }
+    private URI direct(CameraOnvif client,CameraOnvif.Profile profile,URI uri){
+        try{return client.directStream(profile,uri);}
+        catch(IOException ignored){return null;}
     }
     private void stopSession(){
         ++session;
@@ -125,7 +136,12 @@ public final class CameraLocal extends Activity {
     private final class Pane implements SurfaceHolder.Callback {
         final SurfaceView view;
         final TextView note;
-        final Button vlc;
+        final Button vlc, directButton, photoButton;
+        final ImageView photo;
+        CameraOnvif.Profile profile;
+        URI directUri;
+        boolean photos;
+        Runnable nextPhoto;
         final HandlerThread thread;
         final Handler playback;
         // Only the playback thread creates, uses and releases this player.
@@ -133,7 +149,7 @@ public final class CameraLocal extends Activity {
         URI stream;
         String title="";
         boolean ready, opening;
-        int generation;
+        volatile int generation;
         volatile int attempt;
         Runnable timer;
         Pane(int number){
@@ -141,6 +157,18 @@ public final class CameraLocal extends Activity {
             playback=new Handler(thread.getLooper());
             label(root,"Visor "+number,19);note=label(root,"Sem vídeo",14);
             view=new SurfaceView(CameraLocal.this);root.addView(view,-1,dp(146));view.getHolder().addCallback(this);
+            photo=new ImageView(CameraLocal.this);photo.setAdjustViewBounds(true);
+            root.addView(photo,-1,-2);photo.setVisibility(View.GONE);
+            photoButton=button(root,"Ver fotos ONVIF");photoButton.setVisibility(View.GONE);
+            photoButton.setOnClickListener(v->{if(photos)stopPhotos(true);else startPhotos();});
+            directButton=button(root,"Testar RTSP direto");directButton.setVisibility(View.GONE);
+            directButton.setOnClickListener(v->{
+                if(directUri==null)return;
+                stopPhotos(false);photo.setVisibility(View.GONE);photo.setImageBitmap(null);
+                release();stream=directUri;directUri=null;view.setVisibility(View.VISIBLE);
+                title=profile.label+" (direto)";
+                directButton.setVisibility(View.GONE);start();
+            });
             vlc=button(root,"Abrir este perfil no VLC");
             vlc.setVisibility(View.GONE);
             vlc.setOnClickListener(v->{
@@ -153,7 +181,56 @@ public final class CameraLocal extends Activity {
                 catch(ActivityNotFoundException e){android.widget.Toast.makeText(CameraLocal.this,"Instale o VLC para Android para usar esse botão.",android.widget.Toast.LENGTH_LONG).show();}
             });
         }
-        void clear(){++generation;stream=null;release();vlc.setVisibility(View.GONE);note.setText("Sem vídeo");}
+        void clear(){
+            ++generation;stream=null;profile=null;directUri=null;
+            stopPhotos(false);release();
+            photo.setImageBitmap(null);photo.setVisibility(View.GONE);view.setVisibility(View.VISIBLE);
+            directButton.setVisibility(View.GONE);vlc.setVisibility(View.GONE);photoButton.setVisibility(View.GONE);
+            note.setText("Sem vídeo");
+        }
+        void stopPhotos(boolean showStatus){
+            if(photos)++generation;
+            photos=false;
+            if(nextPhoto!=null){main.removeCallbacks(nextPhoto);nextPhoto=null;}
+            photoButton.setText("Ver fotos ONVIF");
+            if(showStatus)note.setText(title+" · fotos pausadas");
+        }
+        void startPhotos(){
+            if(camera==null || profile==null)return;
+            ++generation;photos=true;stream=null;release();
+            view.setVisibility(View.GONE);vlc.setVisibility(View.GONE);directButton.setVisibility(directUri==null?View.GONE:View.VISIBLE);
+            photo.setImageBitmap(null);photo.setVisibility(View.VISIBLE);
+            title=profile.label;photoButton.setText("Parar fotos");
+            note.setText(title+" · solicitando foto ONVIF…");
+            loadPhoto(camera,profile,generation);
+        }
+        void loadPhoto(CameraOnvif client,CameraOnvif.Profile selected,int version){
+            worker.execute(()->{
+                if(version!=generation)return;
+                try{
+                    byte[] data=client.snapshot(selected);
+                    BitmapFactory.Options opts=new BitmapFactory.Options();opts.inJustDecodeBounds=true;
+                    BitmapFactory.decodeByteArray(data,0,data.length,opts);
+                    if(opts.outWidth<=0 || opts.outHeight<=0)throw new IOException("JPEG inválido.");
+                    int sample=1;
+                    while(Math.max(opts.outWidth,opts.outHeight)/sample>1600)sample*=2;
+                    opts.inSampleSize=sample;opts.inJustDecodeBounds=false;
+                    Bitmap bmp=BitmapFactory.decodeByteArray(data,0,data.length,opts);
+                    if(bmp==null)throw new IOException("Falha ao abrir o JPEG.");
+                    main.post(()->{
+                        if(version!=generation){bmp.recycle();return;}
+                        photo.setImageBitmap(bmp);
+                        note.setText(selected.label+" · foto recebida às "+new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.ROOT).format(new java.util.Date()));
+                        nextPhoto=()->loadPhoto(client,selected,version);
+                        main.postDelayed(nextPhoto,3000);
+                    });
+                }catch(Exception ex){
+                    main.post(()->{if(version==generation){
+                        stopPhotos(false);note.setText(selected.label+" · fotos interrompidas. "+message(ex));
+                    }});
+                }
+            });
+        }
         void release(){
             ++attempt;opening=false;
             if(timer!=null){main.removeCallbacks(timer);timer=null;}
@@ -168,6 +245,7 @@ public final class CameraLocal extends Activity {
                 release();
                 int check=attempt;URI selected=stream;
                 vlc.setVisibility(View.VISIBLE);
+                if(directUri!=null)directButton.setVisibility(View.VISIBLE);
                 String prefix=title+" · "+detail;
                 note.setText(prefix+" Conferindo RTSP…");
                 diagnostics.execute(()->{

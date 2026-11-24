@@ -38,6 +38,9 @@ public final class DiagnosticoRtspTest {
         check(calls[0]==2 && result.equals("RTSP respondeu 200 · vídeo H265."));
         check(DiagnosticoRtsp.inspect(rtsp,(u,seq,auth)->reply(404,"","")).contains("404"));
         check(DiagnosticoRtsp.inspect(rtsp,(u,seq,auth)->reply(403,"","")).contains("403"));
+        check(DiagnosticoRtsp.inspect(rtsp,(u,seq,auth)->reply(400,"","")).contains("porta 554, consulta inicial"));
+        check(DiagnosticoRtsp.inspect(rtsp,(u,seq,auth)->seq==1?reply(401,"WWW-Authenticate: Basic realm=cam\r\n",""):
+            reply(400,"","")).contains("após autenticação"));
         check(DiagnosticoRtsp.enderecoSemUsuario(rtsp).toString().equals(target));
         System.out.println("OK: perfil menor por fonte, DESCRIBE autenticado, SDP de vídeo, 403 e 404.");
     }
