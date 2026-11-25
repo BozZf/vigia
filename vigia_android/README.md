@@ -1,6 +1,6 @@
 # Vigia para Android
 
-A versão 0.3.0 abre diretamente a câmera local na rede Wi-Fi. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
+A versão 0.3.1 abre diretamente a câmera local na rede Wi-Fi. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
 
 ## Executar
 
@@ -8,7 +8,7 @@ Abra esta pasta no Android Studio com o SDK Android 35, JDK 17 e Gradle 8.9. Sin
 
 ## Testar a câmera no Wi-Fi
 
-Conecte o celular à rede da câmera e informe seu IPv4 local. O app aceita o endereço do serviço ONVIF que aparece no ONVIF Device Manager, inclusive a porta e o caminho. Com apenas o IP, usa a porta 5000. Preencha o usuário e a senha locais NVR/RTSP. A tela também aceita campos vazios para dispositivos que oferecem acesso local sem usuário. Marque **Lembrar login neste aparelho** para salvar a conexão após a autenticação. O Vigia cifra a senha com uma chave AES-GCM do Android Keystore. Desmarcar a opção remove a conexão salva.
+Conecte o celular à rede da câmera e informe seu IPv4 local. O app aceita o endereço do serviço ONVIF que aparece no ONVIF Device Manager, inclusive a porta e o caminho. Com apenas o IP, usa a porta 5000. Preencha o usuário e a senha locais NVR/RTSP. A tela também aceita campos vazios para dispositivos que oferecem acesso local sem usuário. Marque **Lembrar login neste aparelho** para salvar a conexão após a autenticação. O Vigia cifra a senha com uma chave AES-GCM do Android Keystore. Desmarcar a opção remove a conexão salva. Com a opção desmarcada, desconectar ou sair da tela limpa o endereço e a senha e repõe o usuário padrão (admin). Uma falha de conexão mantém os campos disponíveis para correção.
 
 Ao conectar, o app consulta o relógio, o serviço de mídia ONVIF Media1 e os perfis de vídeo. O app abre o MainStream quando ele está presente na primeira fonte e usa seu endereço ONVIF para negociar uma única faixa de vídeo por RTP/UDP. Recebe H.264 ou H.265 e envia os quadros ao MediaCodec do Android. A imagem composta das duas lentes ocupa um único visor. O PC confirmou as duas cenas no MainStream por UDP. O Galaxy A40 exibiu as duas cenas no Visor 1 com o estado “ao vivo por UDP”. Se faltar MainStream, o app escolhe o perfil mais leve da primeira fonte. Quando há outra fonte identificada, abre seu perfil mais leve no segundo visor. Os botões de perfil permitem trocar a seleção. Se a reprodução UDP falhar, **Tentar com o player do Android** usa o reprodutor padrão para o mesmo endereço. O botão **Abrir este perfil no VLC** entrega o endereço ao VLC instalado. Caso o VLC peça autenticação, informe o usuário e a senha locais. Ao sair da tela, o app encerra os players e as consultas. Este teste requer que o equipamento disponibilize vídeo na rede local.
 
@@ -20,7 +20,7 @@ Durante o vídeo UDP no primeiro visor, **Gravar clipe** salva as duas lentes do
 
 ### Ouvir a câmera
 
-Com o MainStream selecionado no Visor 1, **Ouvir** abre a faixa mono G.711 A-law por UDP em uma sessão RTSP de áudio. A escuta inicia desligada. **Silenciar**, trocar o perfil do Visor 1, desconectar ou sair da tela encerram a escuta. Use o volume de mídia do aparelho. O teste no PC recebeu seis segundos de PCMA a 16 kHz. A reprodução pelo alto-falante do A40 com o vídeo em andamento depende de validação no aparelho.
+Com o MainStream selecionado no Visor 1, **Ouvir** abre a faixa mono G.711 A-law por UDP em uma sessão RTSP de áudio. A escuta inicia desligada. **Silenciar**, trocar o perfil do Visor 1, desconectar ou sair da tela encerram a escuta. Use o volume de mídia do aparelho. O teste no PC recebeu seis segundos de PCMA a 16 kHz. A escuta foi confirmada no A40.
 
 ### Se a câmera responder RTSP 400
 
@@ -34,7 +34,7 @@ Na pasta do projeto, execute `node tests/painel.cjs` para testar a seleção dos
 
 ## Integração com a câmera
 
-O teste de Wi-Fi usa o serviço da própria câmera. Os testes no A40 confirmaram a exibição das duas lentes no MainStream. A escuta, os controles de movimento e os clipes desta versão ainda precisam de validação no aparelho. O histórico abaixo registra a investigação da integração de conta separada.
+O teste de Wi-Fi usa o serviço da própria câmera. Os testes no A40 confirmaram a exibição das duas lentes no MainStream. O teste da versão 0.3.0 no A40 confirmou a escuta e o movimento nas quatro direções. O clipe enviado mostra as duas lentes. O histórico abaixo registra a investigação da integração de conta separada.
 
 ### O que já foi identificado no SDK Android
 

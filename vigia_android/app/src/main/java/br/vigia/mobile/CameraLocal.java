@@ -11,6 +11,8 @@ import android.os.HandlerThread;
 import android.media.MediaPlayer;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.ViewGroup;
@@ -76,11 +78,12 @@ public final class CameraLocal extends Activity {
             applyTheme();
         });
         loginForm=column(root);
+        loginForm.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
         label(loginForm,"Câmera no Wi-Fi",20);
         address=field("Endereço ONVIF","IP ou endereço da câmera",17);
         user=field("Usuário local","Usuário da câmera",1);user.setText("admin");
         password=field("Senha NVR/RTSP","Senha local da câmera",129);
-        remember=new CheckBox(this);remember.setText("Lembrar login neste aparelho");loginForm.addView(remember);
+        remember=new CheckBox(this);remember.setSaveEnabled(false);remember.setText("Lembrar login neste aparelho");loginForm.addView(remember);
         boolean lostLogin=false;
         try {
             String[] savedLogin=login.load();
@@ -90,7 +93,7 @@ public final class CameraLocal extends Activity {
             }
         } catch(Exception e) {login.forget();lostLogin=true;}
         remember.setOnCheckedChangeListener((button,checked)->{if(!checked)login.forget();});
-        connect=button(root,"Conectar à câmera");connect.setOnClickListener(v->{if(camera==null)begin();else stopSession();});
+        connect=button(root,"Conectar à câmera");connect.setOnClickListener(v->{if(camera==null)begin();else disconnect();});
         status=label(root,lostLogin?"Informe novamente a senha para salvar o login.":"Conecte o celular ao Wi-Fi da câmera.",15);
         panes[0]=new Pane(1);
         movementPanel=column(root);
@@ -127,7 +130,14 @@ public final class CameraLocal extends Activity {
         if(view instanceof TextView){
             TextView text=(TextView)view;
             text.setTextColor(ink());
-            if(text instanceof EditText)text.setHintTextColor(subtle());
+            if(text instanceof EditText){
+                text.setHintTextColor(subtle());
+                StateListDrawable backgrounds = new StateListDrawable();
+                backgrounds.addState(new int[]{android.R.attr.state_focused}, fieldBackground(true));
+                backgrounds.addState(new int[0], fieldBackground(false));
+                text.setBackground(backgrounds);
+                text.setPadding(dp(12),dp(8),dp(12),dp(8));
+            }
             if(text instanceof Button && !(text instanceof CheckBox))
                 text.setBackgroundTintList(android.content.res.ColorStateList.valueOf(light?0xffdce7e5:0xff36424d));
         }
@@ -135,6 +145,16 @@ public final class CameraLocal extends Activity {
             ViewGroup group=(ViewGroup)view;
             for(int i=0;i<group.getChildCount();i++)tint(group.getChildAt(i));
         }
+    }
+
+    private GradientDrawable fieldBackground(boolean focused){
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(light ? 0xffffffff : 0xff29323d);
+        shape.setCornerRadius(dp(8));
+        int border = focused ? (light ? 0xff236759 : 0xff9be4d0)
+                             : (light ? 0xff78898b : 0xff70818a);
+        shape.setStroke(dp(focused ? 2 : 1), border);
+        return shape;
     }
 
     private void arrow(LinearLayout row,String text,String description,double x,double y){
@@ -205,7 +225,7 @@ public final class CameraLocal extends Activity {
         v.setPadding(0,dp(5),0,dp(3));parent.addView(v);return v;
     }
     private EditText field(String title,String hint,int type){
-        label(loginForm,title,14); EditText v=new EditText(this);v.setSingleLine(true);v.setInputType(type);
+        label(loginForm,title,14); EditText v=new EditText(this);v.setSingleLine(true);v.setInputType(type);v.setSaveEnabled(false);
         v.setHint(hint);v.setHintTextColor(subtle());v.setTextColor(ink());loginForm.addView(v);return v;
     }
     private Button button(LinearLayout parent,String title){
@@ -326,7 +346,15 @@ public final class CameraLocal extends Activity {
         for(Pane p:panes)if(p!=null){p.clear();p.group.setVisibility(View.GONE);}
         options.removeAllViews();setInputs(true);status.setText("Desconectado.");
     }
-    @Override protected void onStop(){stopSession();super.onStop();}
+    private void disconnect(){
+        stopSession();
+        if(!remember.isChecked()){
+            address.setText("");
+            user.setText("admin");
+            password.setText("");
+        }
+    }
+    @Override protected void onStop(){disconnect();super.onStop();}
     @Override protected void onDestroy(){
         movement.shutdown();worker.shutdownNow();diagnostics.shutdownNow();soundWorker.shutdownNow();
         for(Pane p:panes)if(p!=null){p.release();p.thread.quitSafely();}
