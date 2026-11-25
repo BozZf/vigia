@@ -52,7 +52,9 @@ public final class CameraLocal extends Activity {
     private TextView soundNote;
     private URI soundUri;
     private volatile int soundVersion;
-    private boolean listening;
+    private volatile boolean listening;
+    private boolean soundRunning;
+    private volatile ClipSound clipSound;
     private CameraOnvif camera;
     private EditText address, user, password;
     private TextView status;
@@ -299,33 +301,50 @@ public final class CameraLocal extends Activity {
         catch(IOException ignored){return null;}
     }
     private void resetClip(){
-        clipRequested=false;clipFinishing=false;clipButton.setVisibility(View.GONE);clipButton.setText("Gravar clipe");
+        clipRequested=false;clipFinishing=false;clipSound=null;syncSound();clipButton.setVisibility(View.GONE);clipButton.setText("Gravar clipe");
         clipNote.setText("");
     }
     private void setSoundSource(URI uri){
-        stopListening();soundUri=uri;
+        ++soundVersion;soundRunning=false;listening=false;soundUri=uri;
+        listenButton.setText("Ouvir");soundNote.setVisibility(View.GONE);
         listenButton.setVisibility(uri==null?View.GONE:View.VISIBLE);
     }
-    private void stopListening(){
-        ++soundVersion;listening=false;
-        listenButton.setText("Ouvir");soundNote.setVisibility(View.GONE);
-    }
     private void toggleListening(){
-        if(listening){stopListening();return;}
+        if(soundUri==null)return;
+        listening=!listening;
+        listenButton.setText(listening?"Silenciar":"Ouvir");
+        soundNote.setText("Abrindo áudio por UDP…");
+        soundNote.setVisibility(listening?View.VISIBLE:View.GONE);
+        syncSound();
+    }
+    // One RTSP session feeds both the optional speaker and the active clip.
+    private void syncSound(){
         URI uri=soundUri;
-        if(uri==null)return;
-        final int version=++soundVersion;listening=true;
-        listenButton.setText("Silenciar");soundNote.setText("Abrindo áudio por UDP…");soundNote.setVisibility(View.VISIBLE);
+        boolean needed=uri!=null && (listening || clipRequested);
+        if(needed==soundRunning)return;
+        soundRunning=needed;
+        final int version=++soundVersion;
+        if(!needed)return;
         soundWorker.execute(()->{
             if(version!=soundVersion)return;
-            try(CameraSpeaker speaker=new CameraSpeaker(()->version==soundVersion,()->main.post(()->{
-                if(version==soundVersion)soundNote.setText("Ouvindo a câmera");
-            }))){
+            try(CameraSpeaker speaker=new CameraSpeaker(()->version==soundVersion,
+                ()->version==soundVersion && listening,()->version==soundVersion ? clipSound : null,
+                ()->main.post(()->{
+                    if(version==soundVersion && listening)soundNote.setText("Ouvindo a câmera");
+                }),()->main.post(()->{
+                    if(version!=soundVersion || !listening)return;
+                    listening=false;listenButton.setText("Ouvir");soundNote.setText("Saída de som indisponível.");
+                    syncSound();
+                }))){
                 new RtspUdp(uri).listen(speaker);
             }catch(Exception ex){
                 main.post(()->{
                     if(version!=soundVersion)return;
-                    stopListening();soundNote.setText("Escuta interrompida. "+soundError(ex));soundNote.setVisibility(View.VISIBLE);
+                    soundRunning=false;listening=false;listenButton.setText("Ouvir");
+                    ClipSound recorder=clipSound;
+                    if(recorder!=null)recorder.failed();
+                    soundNote.setText("Áudio da câmera interrompido. "+soundError(ex));
+                    soundNote.setVisibility(View.VISIBLE);
                 });
             }
         });
@@ -395,7 +414,10 @@ public final class CameraLocal extends Activity {
                 clipButton=button(group,"Gravar clipe");clipButton.setVisibility(View.GONE);
                 clipNote=label(group,"",14);
                 clipButton.setOnClickListener(v->{
+                    if(!clipRequested)clipSound=new ClipSound();
                     clipRequested=!clipRequested;
+                    if(!clipRequested)clipSound=null;
+                    syncSound();
                     clipButton.setText(clipRequested?"Encerrar clipe":"Gravar clipe");
                     clipNote.setText(clipRequested?"Aguardando quadro inicial…":"Finalizando clipe…");
                     if(!clipRequested){clipFinishing=true;clipButton.setEnabled(false);}
@@ -553,10 +575,11 @@ public final class CameraLocal extends Activity {
             UdpDecoder.View callbacks=new UdpDecoder.View(){
                 public boolean active(){return id==attempt;}
                 public boolean wantsClip(){return primary && active() && clipRequested;}
+                public ClipSound clipSound(){return primary && active()?CameraLocal.this.clipSound:null;}
                 public boolean finishingClip(){return primary && active() && clipFinishing;}
                 public void recording(boolean recording,String detail){main.post(()->{
                     if(!active() || !primary)return;
-                    if(!recording){clipFinishing=false;clipRequested=false;clipButton.setEnabled(true);clipButton.setText("Gravar clipe");}
+                    if(!recording){clipFinishing=false;clipRequested=false;clipSound=null;syncSound();clipButton.setEnabled(true);clipButton.setText("Gravar clipe");}
                     clipNote.setText(detail);
                 });}
                 public void size(int w,int h){main.post(()->{

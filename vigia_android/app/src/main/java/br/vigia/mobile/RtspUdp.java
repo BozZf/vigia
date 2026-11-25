@@ -17,6 +17,7 @@ final class RtspUdp {
         boolean active();
         void format(int sampleRate)throws Exception;
         void samples(short[] pcm,int count)throws Exception;
+        default void packetSamples(short[] pcm,int count,long stamp)throws Exception { samples(pcm,count); }
     }
     private interface Receiver {
         boolean active();
@@ -160,7 +161,7 @@ final class RtspUdp {
             }
             public void packet(byte[] data,int length)throws Exception{
                 int count=decoder.decode(data,length);
-                if(count>0)listener.samples(decoder.pcm,count);
+                if(count>0)listener.packetSamples(decoder.pcm,count,((long)RtpVideo.u16(data,4)<<16)|RtpVideo.u16(data,6));
             }
         });
     }

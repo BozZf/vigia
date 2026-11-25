@@ -27,12 +27,16 @@ final class LocalClip {
     private File pending, destination;
     private MediaMuxer muxer;
     private int track;
+    private ClipAac audio;
+    private boolean audioInterrupted;
+    boolean lostAudio(){return audioInterrupted;}
+    boolean hasAudio(){return audio!=null;}
     private long lastStamp, elapsedTicks, lastTime;
     private boolean started, wroteFrame;
 
     LocalClip(Context context) { this.context = context; }
 
-    void open(MediaFormat format, long stamp) throws IOException {
+    void open(MediaFormat format, long stamp, ClipSound sound, long originUs) throws IOException {
         String day = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.ROOT).format(new Date());
         String name = "Vigia_" + day + "_" + UUID.randomUUID().toString().substring(0,8) + ".mp4";
         if (Build.VERSION.SDK_INT >= 29) {
@@ -56,6 +60,10 @@ final class LocalClip {
             muxer = new MediaMuxer(pending.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
         }
         track = muxer.addTrack(format);
+        if(sound!=null && sound.rate()>0){
+            try {audio=new ClipAac(sound,muxer,originUs);}
+            catch(IOException | RuntimeException ignored){ /* Keep video on unsupported encoders. */ }
+        }
         muxer.start();
         started = true;
         lastStamp = stamp;
@@ -71,12 +79,23 @@ final class LocalClip {
         time = Math.max(lastTime + 1, time);
         sample.set(0, data.length, time, key ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
         muxer.writeSampleData(track, ByteBuffer.wrap(data), sample);
+        if(audio!=null){
+            try {audio.writeUntil(time-160_000);}
+            catch(IOException | RuntimeException e){
+                audioInterrupted=true;
+                audio.close();audio=null;
+            }
+        }
         lastTime = time;
         wroteFrame = true;
     }
 
     boolean finish(boolean keep) {
         boolean success = keep && started && wroteFrame;
+        try {
+            if(audio!=null && success)audio.finish(lastTime);
+        } catch(IOException | RuntimeException e){audioInterrupted=true;}
+        finally { if(audio!=null){audio.close();audio=null;} }
         try {
             if (started) muxer.stop();
         } catch (RuntimeException e) { success = false; }

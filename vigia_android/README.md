@@ -1,6 +1,6 @@
 # Vigia para Android
 
-A versão 0.3.1 abre diretamente a câmera local na rede Wi-Fi. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
+A versão 0.3.2 abre diretamente a câmera local na rede Wi-Fi. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
 
 ## Executar
 
@@ -16,7 +16,7 @@ Ao conectar, o app consulta o relógio, o serviço de mídia ONVIF Media1 e os p
 
 As quatro setas dão passos curtos na lente móvel. O app solicita a parada por velocidade zero após cada passo, inclusive se a resposta de movimento se perder. O botão **Parar movimento** permite repetir o pedido. O teste no PC confirmou esse comportamento na A29. Os controles aparecem quando a câmera anuncia o serviço PTZ.
 
-Durante o vídeo UDP no primeiro visor, **Gravar clipe** salva as duas lentes do MainStream em um MP4 sem áudio. O arquivo começa no próximo quadro-chave. Toque em **Encerrar clipe** para finalizar. Sair da tela também encerra o clipe. No Android 10 ou superior, os clipes aparecem em Filmes/Vigia na galeria. Nas versões 8 e 9, ficam na pasta externa do app em Android/data/br.vigia.mobile/files/Movies.
+Durante o vídeo UDP no primeiro visor, **Gravar clipe** salva as duas lentes do MainStream e o áudio da câmera em um MP4. O app busca a faixa de áudio e inicia o clipe em um quadro-chave de vídeo. Se o áudio estiver indisponível na abertura, a tela indica que está gravando só vídeo. **Ouvir** e **Silenciar** controlam o som no alto-falante do celular durante a gravação. Toque em **Encerrar clipe** para finalizar. Sair da tela também encerra o clipe. No Android 10 ou superior, os clipes aparecem em Filmes/Vigia na galeria. Nas versões 8 e 9, ficam na pasta externa do app em Android/data/br.vigia.mobile/files/Movies.
 
 ### Ouvir a câmera
 
@@ -34,7 +34,7 @@ Na pasta do projeto, execute `node tests/painel.cjs` para testar a seleção dos
 
 ## Integração com a câmera
 
-O teste de Wi-Fi usa o serviço da própria câmera. Os testes no A40 confirmaram a exibição das duas lentes no MainStream. O teste da versão 0.3.0 no A40 confirmou a escuta e o movimento nas quatro direções. O clipe enviado mostra as duas lentes. O histórico abaixo registra a investigação da integração de conta separada.
+O teste de Wi-Fi usa o serviço da própria câmera. Os testes no A40 confirmaram a exibição das duas lentes no MainStream. O teste da versão 0.3.0 no A40 confirmou a escuta e o movimento nas quatro direções. O clipe enviado mostra as duas lentes. A sincronização de imagem e som no MP4 da versão 0.3.2 ainda precisa de validação no A40. O histórico abaixo registra a investigação da integração de conta separada.
 
 ### O que já foi identificado no SDK Android
 

@@ -14,6 +14,7 @@ final class UdpDecoder implements RtspUdp.Listener,AutoCloseable {
         void firstFrame();
         boolean wantsClip();
         boolean finishingClip();
+        ClipSound clipSound();
         void recording(boolean active, String status);
 
     }
@@ -93,12 +94,16 @@ final class UdpDecoder implements RtspUdp.Listener,AutoCloseable {
         try {
             boolean key=isKeyFrame(data);
             if(clip==null){
-                if(!key)return;
+                ClipSound sound=view.clipSound();
+                if(!key || (sound!=null && sound.waiting()))return;
+                long originUs=ClipSound.nowUs();
                 clip=new LocalClip(context);
-                clip.open(format,stamp);
-                view.recording(true,"Gravando vídeo sem áudio");
+                clip.open(format,stamp,sound,originUs);
+                view.recording(true,clip.hasAudio()?"Gravando com áudio da câmera":"Gravando só vídeo · áudio indisponível");
             }
+            boolean hadAudio=clip.hasAudio();
             clip.write(data,stamp,key);
+            if(hadAudio && clip.lostAudio())view.recording(true,"Gravando vídeo · áudio interrompido");
         } catch(Exception e) {
             if(clip!=null)clip.finish(false);
             clip=null;clipFailed=true;
@@ -107,9 +112,10 @@ final class UdpDecoder implements RtspUdp.Listener,AutoCloseable {
     }
     private void finishClip() {
         boolean saved=clip.finish(true);
+        String detail=clip.lostAudio()?" O áudio foi interrompido.":"";
         clip=null;
         view.recording(false,saved ? (android.os.Build.VERSION.SDK_INT>=29 ?
-            "Clipe salvo em Filmes/Vigia." : "Clipe salvo na pasta Movies do Vigia.") :
+            "Clipe salvo em Filmes/Vigia." : "Clipe salvo na pasta Movies do Vigia.")+detail :
             "Não foi possível finalizar o clipe.");
     }
     public void frame(byte[] data,long stamp)throws Exception{
