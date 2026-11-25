@@ -19,6 +19,15 @@ final class RtpVideo {
         this.hevc=hevc;this.payload=payload;this.sink=sink;
     }
     static int u16(byte[] b,int i){return (b[i]&255)*256+(b[i+1]&255);}
+    // Some cameras mark VPS/SPS/PPS as complete access units with the picture timestamp.
+    static boolean containsPicture(byte[] unit,boolean hevc){
+        for(int i=0;i+4<unit.length;i++){
+            if(unit[i]!=0 || unit[i+1]!=0 || unit[i+2]!=0 || unit[i+3]!=1)continue;
+            int type=hevc?(unit[i+4]&126)>>1:unit[i+4]&31;
+            if(hevc?type<=31:(type>=1 && type<=5))return true;
+        }
+        return false;
+    }
     private void startNal(){frame.write(START,0,4);}
     void packet(byte[] b,int size)throws Exception{
         if(size<12 || (b[0]&192)!=128 || (b[1]&127)!=payload)return;

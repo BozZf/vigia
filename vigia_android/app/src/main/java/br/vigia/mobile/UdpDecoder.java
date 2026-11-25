@@ -120,7 +120,7 @@ final class UdpDecoder implements RtspUdp.Listener,AutoCloseable {
     }
     public void frame(byte[] data,long stamp)throws Exception{
         if(!active() || codec==null && !prepare(data))return;
-        record(data,stamp);
+        if(RtpVideo.containsPicture(data,hevc))record(data,stamp);
         drain();
         int input=codec.dequeueInputBuffer(20000);
         if(input>=0){

@@ -1,6 +1,6 @@
 # Vigia para Android
 
-A versão 0.3.2 abre diretamente a câmera local na rede Wi-Fi. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
+A versão 0.3.3 abre diretamente a câmera local na rede Wi-Fi. Reproduz dois vídeos de demonstração em paralelo ou dois vídeos escolhidos no aparelho. O painel oferece temas claro e escuro e pausa a reprodução quando o usuário sai. A reprodução dos dois vídeos de demonstração foi confirmada em um Samsung Galaxy A40.
 
 ## Executar
 
@@ -34,7 +34,7 @@ Na pasta do projeto, execute `node tests/painel.cjs` para testar a seleção dos
 
 ## Integração com a câmera
 
-O teste de Wi-Fi usa o serviço da própria câmera. Os testes no A40 confirmaram a exibição das duas lentes no MainStream. O teste da versão 0.3.0 no A40 confirmou a escuta e o movimento nas quatro direções. O clipe enviado mostra as duas lentes. A sincronização de imagem e som no MP4 da versão 0.3.2 ainda precisa de validação no A40. O histórico abaixo registra a investigação da integração de conta separada.
+O teste de Wi-Fi usa o serviço da própria câmera. Os testes no A40 confirmaram a exibição das duas lentes no MainStream. O teste da versão 0.3.0 no A40 confirmou a escuta e o movimento nas quatro direções. O clipe enviado mostra as duas lentes. Na versão 0.3.2, o arquivo de teste continha áudio AAC e pausas entre imagens. A 0.3.3 recebe pacotes UDP em paralelo à gravação e aguarda rajadas de áudio atrasadas. A fluidez precisa ser conferida no A40. O histórico abaixo registra a investigação da integração de conta separada.
 
 ### O que já foi identificado no SDK Android
 

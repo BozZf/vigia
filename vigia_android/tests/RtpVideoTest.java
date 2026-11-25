@@ -22,6 +22,10 @@ public class RtpVideoTest {
             feed(parser,packet(6,3,true,hevc?new int[]{96,1,0,2,38,1}:new int[]{24,0,2,101,9}));
             if(out.size()!=2)throw new AssertionError("aggregation");
         }
+        if(RtpVideo.containsPicture(new byte[]{0,0,0,1,64,1},true) ||
+                RtpVideo.containsPicture(new byte[]{0,0,0,1,103,5},false) ||
+                !RtpVideo.containsPicture(new byte[]{0,0,0,1,66,1,0,0,0,1,38,1},true))
+            throw new AssertionError("configuration-only samples must not create pictures");
         String sdp="v=0\r\na=control:*\r\nm=audio 0 RTP/AVP 8\r\na=control:track1\r\nm=video 0 RTP/AVP 97\r\na=rtpmap:97 H265/90000\r\na=control:track2\r\n";
         RtspUdp.Track t=RtspUdp.Track.parse(sdp);
         if(!t.hevc || t.payload!=97 || !"track2".equals(t.path))throw new AssertionError();

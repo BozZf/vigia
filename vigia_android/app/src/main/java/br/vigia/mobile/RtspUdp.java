@@ -212,19 +212,15 @@ final class RtspUdp {
         for(String f:fields)if(f.trim().matches("timeout=[0-9]{1,6}"))keepAliveSeconds=Math.max(1,Math.min(20,Integer.parseInt(f.trim().substring(8))/2));
         request("PLAY",aggregate,"Range: npt=0.000-\r\n");
 
-        byte[] buf=new byte[65535];DatagramPacket packet=new DatagramPacket(buf,buf.length);
-        long last=System.nanoTime(),alive=last;
-        while(listener.active()){
-            packet.setLength(buf.length);
-            try{
-                rtp.receive(packet);
-                if(control.getInetAddress().equals(packet.getAddress()) && packet.getLength()>=12 && (buf[1]&127)==track.payload){
-                    last=System.nanoTime();listener.packet(buf,packet.getLength());
-                }
-            }catch(SocketTimeoutException ignored){}
-            long now=System.nanoTime();
-            if(now-last>8_000_000_000L)throw new IOException("PLAY aceito. Nenhum pacote de mídia UDP recebido nos últimos 8 s.");
-            if(now-alive>keepAliveSeconds*1_000_000_000L){request("OPTIONS",aggregate,"");alive=System.nanoTime();}
+        try(RtpInbox inbox=new RtpInbox(rtp,control.getInetAddress(),track.payload)){
+            long last=System.nanoTime(),alive=last;
+            while(listener.active()){
+                byte[] packet=inbox.poll();
+                if(packet!=null){last=System.nanoTime();listener.packet(packet,packet.length);}
+                long now=System.nanoTime();
+                if(now-last>8_000_000_000L)throw new IOException("PLAY aceito. Nenhum pacote de mídia UDP recebido nos últimos 8 s.");
+                if(now-alive>keepAliveSeconds*1_000_000_000L){request("OPTIONS",aggregate,"");alive=System.nanoTime();}
+            }
         }
     }
 }

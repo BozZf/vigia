@@ -15,7 +15,7 @@ final class ClipSound {
     final long requestedUs = nowUs();
     private final ArrayDeque<Packet> packets = new ArrayDeque<>();
     private int rate;
-    private long anchorUs, lastStamp, ticks;
+    private long anchorUs, lastStamp, ticks, receivedUntilUs;
     private boolean anchored;
     private volatile boolean unavailable;
 
@@ -37,9 +37,16 @@ final class ClipSound {
         }
         lastStamp=stamp;
         long start=anchorUs+ticks*1_000_000L/hz;
+        receivedUntilUs=Math.max(receivedUntilUs,start+count*1_000_000L/hz);
         packets.addLast(new Packet(start,Arrays.copyOf(pcm,count)));
         while(packets.size()>512 || start-packets.peekFirst().startUs>3_000_000)
             packets.removeFirst();
+    }
+
+    // Give late audio a bounded chance to arrive before replacing missing PCM with zeros.
+    synchronized long readyUntil(long originUs,long videoUs){
+        long received=receivedUntilUs-originUs;
+        return Math.min(videoUs,Math.max(received,videoUs-1_600_000L));
     }
 
     /** Copies an exact time interval. A lost packet leaves silence in its own slot. */

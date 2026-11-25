@@ -80,7 +80,7 @@ final class LocalClip {
         sample.set(0, data.length, time, key ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
         muxer.writeSampleData(track, ByteBuffer.wrap(data), sample);
         if(audio!=null){
-            try {audio.writeUntil(time-160_000);}
+            try {audio.writeAvailable(time);}
             catch(IOException | RuntimeException e){
                 audioInterrupted=true;
                 audio.close();audio=null;

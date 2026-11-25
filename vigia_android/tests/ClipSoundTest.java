@@ -35,6 +35,12 @@ public final class ClipSoundTest {
         late.read(aligned,640,ORIGIN,0);
         range(aligned.array(),0,320,0);
         range(aligned.array(),320,640,7);
+        ClipSound burst=new ClipSound();
+        burst.offer(tone(1),320,HZ,0,ORIGIN+20_000);
+        if(burst.readyUntil(ORIGIN,1_400_000)!=20_000)throw new AssertionError("encoded missing audio early");
+        for(int i=1;i<70;i++)burst.offer(tone(2),320,HZ,i*320,ORIGIN+1_410_000);
+        if(burst.readyUntil(ORIGIN,1_400_000)!=1_400_000)throw new AssertionError("late burst lost");
+        if(burst.readyUntil(ORIGIN,4_000_000)!=2_400_000)throw new AssertionError("unbounded wait");
         ClipSound unavailable=new ClipSound();
         unavailable.failed();
         if(unavailable.waiting() || unavailable.rate()!=0)throw new AssertionError();

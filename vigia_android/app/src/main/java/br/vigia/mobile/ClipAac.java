@@ -41,7 +41,11 @@ final class ClipAac implements AutoCloseable {
         } catch(RuntimeException e){close();throw e;}
     }
 
-    void writeUntil(long timeUs) throws IOException {
+    void writeAvailable(long videoUs) throws IOException {
+        writeUntil(sound.readyUntil(originUs,videoUs));
+    }
+
+    private void writeUntil(long timeUs) throws IOException {
         long end=Math.max(0,timeUs)*rate/1_000_000;
         while(written<end){
             int input=input();
