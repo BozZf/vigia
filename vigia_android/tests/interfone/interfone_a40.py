@@ -35,7 +35,7 @@ def device_pid(adb):
     result = run(adb, 'shell', 'pidof', '-s', PACKAGE)
     value = result.stdout.strip()
     if not re.fullmatch(r'[1-9][0-9]*', value):
-        raise ValueError('Abra o vídeo da A29 no Yoosee e execute o teste novamente.')
+        raise ValueError('Abra o Yoosee na lista de câmeras e execute o teste novamente.')
     return value
 
 
@@ -48,7 +48,15 @@ def summarize(lines, since, pid):
             continue
         body = match[3].lower()
         event = ''
-        if 'gwmonitorplayer' in body:
+        if 'playerfactory' in body and 'createplayer' in body:
+            selection = re.search(r'createplayer devicetype:\s*([1-4])\s+calltype:\s*(\d{1,2})\b', body)
+            if selection:
+                kind, call = selection.groups()
+                family = 'IoT Video' if kind == '1' else 'Gwell GPlayer'
+                event = f'PlayerFactory · família {family} (tipo {kind}, chamada {call})'
+        elif 'tmonitorplayer' in body and re.search(r'\b(starttalk|stoptalk)\b', body):
+            event = 'TMonitorPlayer · comando de fala (IoT Video)'
+        elif 'gwmonitorplayer' in body:
             result = re.search(r'\b(stalktalk|starttalk|stoptalk) result code:\s*(-?\d{1,8})\b', body)
             if result:
                 action = 'parar' if result[1] == 'stoptalk' else 'iniciar'
@@ -78,22 +86,22 @@ def main():
     state = run(adb, 'get-state')
     if state.stdout.strip() != 'device':
         raise ValueError('Conecte somente o A40 por USB e autorize a depuração na tela do celular.')
-    input('Abra a A29 ao vivo no Yoosee, deixe o interfone solto e pressione Enter no PC. ')
+    input('No Yoosee, volte à lista de câmeras. Antes de abrir Casa, pressione Enter no PC. ')
     pid = device_pid(adb)
     since = int(run(adb, 'shell', 'date', '+%s').stdout.strip()) + 1
     time.sleep(1.2)
-    print('AGORA: use o interfone no Yoosee e diga “Teste do A40, um, dois, três”.')
+    print('AGORA: abra Casa, aguarde o vídeo ao vivo e use o interfone para dizer uma frase curta.')
     input('Ao terminar, solte ou desligue o interfone e pressione Enter no PC. ')
     if device_pid(adb) != pid:
-        raise ValueError('O Yoosee reiniciou durante o teste. Repita com o vídeo já aberto.')
-    log = run(adb, 'logcat', '-d', '-v', 'epoch', '--pid='+pid)
+        raise ValueError('O Yoosee reiniciou durante o teste. Volte à lista de câmeras e repita.')
+    log = run(adb, 'logcat', '-d', '-v', 'threadtime', '-v', 'epoch', '--pid='+pid)
     events = summarize(log.stdout.splitlines(), since, pid) if log.returncode == 0 else []
     choices = {'s':'sim', 'n':'não', 'i':'inconclusivo'}
     while True:
         answer = input('A frase saiu do alto-falante da câmera? [s/n/i] ').strip().lower()
         if answer in choices:
             break
-    report = ['Vigia · referência de interfone Android', 'Aplicativo testado: Yoosee',
+    report = ['Vigia · referência de interfone Android v2', 'Aplicativo testado: Yoosee',
               'Frase ouvida fisicamente na A29: '+choices[answer]]
     report += events or ['Implementação não identificada pelos eventos disponíveis.']
     if log.returncode:
